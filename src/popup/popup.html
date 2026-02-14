@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Настройки — Счёт на предоплату</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <!-- Шапка -->
+    <header class="popup__header">
+      <h1 class="popup__title">Контур Отель</h1>
+      <p class="popup__subtitle">Счёт на предоплату</p>
+    </header>
+
+    <!-- Статус подключения -->
+    <div id="status" class="popup__status popup__status--unknown">
+      <span class="popup__status-dot"></span>
+      <span id="statusText">Проверка настроек...</span>
+    </div>
+
+    <!-- Форма настроек -->
+    <form id="settingsForm" class="popup__form">
+      <!-- Backend URL -->
+      <div class="popup__field">
+        <label class="popup__label" for="backendUrl">URL сервера</label>
+        <input
+          type="url"
+          id="backendUrl"
+          class="popup__input"
+          placeholder="https://your-app.vercel.app"
+          required
+        >
+        <p class="popup__hint">Адрес сервера для отправки email (одинаковый для всех сотрудников)</p>
+      </div>
+
+      <!-- API Key -->
+      <div class="popup__field">
+        <label class="popup__label" for="apiKey">API-ключ</label>
+        <input
+          type="password"
+          id="apiKey"
+          class="popup__input"
+          placeholder="Секретный ключ доступа"
+          required
+        >
+        <p class="popup__hint">Ключ авторизации (получите у администратора)</p>
+      </div>
+
+      <!-- Кнопки -->
+      <div class="popup__actions">
+        <button type="submit" class="popup__btn popup__btn--primary" id="saveBtn">
+          Сохранить
+        </button>
+        <button type="button" class="popup__btn popup__btn--secondary" id="testBtn">
+          Тест подключения
+        </button>
+      </div>
+    </form>
+
+    <!-- Сообщение об успехе / ошибке -->
+    <div id="message" class="popup__message" style="display: none;"></div>
+
+    <!-- Информация -->
+    <footer class="popup__footer">
+      <p>Версия 1.0.0</p>
+      <p>Работает на hotel.kontur.ru</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

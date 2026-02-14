@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Контур Отель — Счёт на предоплату",
+  "version": "1.0.0",
+  "description": "Формирование и отправка счетов на предоплату из бронирований Контур Отель",
+
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+
+  "host_permissions": [
+    "https://hotel.kontur.ru/*"
+  ],
+
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://hotel.kontur.ru/*"],
+      "js": [
+        "libs/jspdf.umd.min.js",
+        "libs/qrcode.js",
+        "src/fonts/roboto-regular.js",
+        "src/config/hotel-details.js",
+        "src/utils/data-parser.js",
+        "src/utils/invoice-generator.js",
+        "src/utils/email-sender.js",
+        "src/content/content.js"
+      ],
+      "css": ["src/content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "kontur-hotel-invoice-backend",
+  "version": "1.0.0",
+  "description": "Backend для отправки счетов на предоплату через Yandex SMTP",
+  "private": true,
+  "dependencies": {
+    "nodemailer": "^6.9.0"
+  }
+}

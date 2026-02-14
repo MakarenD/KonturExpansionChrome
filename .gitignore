@@ -1,0 +1,17 @@
+# Dependencies
+backend/node_modules/
+node_modules/
+
+# Vercel
+.vercel/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temp files
+*.log
