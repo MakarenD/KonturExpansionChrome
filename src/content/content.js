@@ -226,13 +226,40 @@
       var bookingData = result.bookingData;
       var pdfResult = result.pdfResult;
 
+      var surchargeAtHotel = bookingData.totalPrice - bookingData.prepayAmount;
+      if (surchargeAtHotel < 0) surchargeAtHotel = 0;
+
+      var invoiceSubject = 'Счёт на предоплату — бронирование №' + bookingData.bookingNumber;
+      var invoiceBody =
+        'Здравствуйте!\n\n' +
+        'Для вас забронирован номер: ' + (bookingData.roomType || '') + '\n\n' +
+        'Всего к оплате: ' + formatMoney(bookingData.totalPrice) + ' руб.\n' +
+        'Предоплата по бронированию: ' + formatMoney(bookingData.prepayAmount) + ' руб.\n' +
+        'К оплате в отеле: ' + formatMoney(surchargeAtHotel) + ' руб.\n\n' +
+        'Вы можете произвести предоплату следующими способами:\n' +
+        '\u2022 используя счет на предоплату (во вложении);\n' +
+        '\u2022 просканировав QR-код счета через банковское приложение с телефона.\n' +
+        'Оплатить необходимо в течение 3 (трех) суток с момента бронирования*.\n' +
+        'После того, как денежные средства поступят на наш расчетный счет, ' +
+        'бронирование будет подтверждено, и мы направим вам ваучер.\n' +
+        '* Если оплата по счету не будет произведена в течение 3 суток, бронь аннулируется.\n\n' +
+        'Спасибо, что выбрали нас, «Альбатрос» ждёт Вас!\n' +
+        '__\n' +
+        'С уважением, отдел бронирования ГРК «Альбатрос»\n' +
+        'Официальный сайт: https://albatrosmore.ru/\n' +
+        ' 8 (800) 101-47-17\n' +
+        ' 8 (861) 213-21-17\n\n' +
+        'Альбатрос — место, куда возвращаются за счастьем';
+
       sendInvoiceEmail(
         {
           to: bookingData.guestEmail,
           guestName: bookingData.guestName,
           bookingNumber: bookingData.bookingNumber,
           pdfBase64: pdfResult.base64,
-          pdfFilename: pdfResult.filename
+          pdfFilename: pdfResult.filename,
+          emailSubject: invoiceSubject,
+          emailBody: invoiceBody
         },
         function onSuccess() {
           setButtonState(button, 'success', '✅ Отправлено');
@@ -326,6 +353,15 @@
       }
 
       var bookingData = result.bookingData;
+
+      // Проверка внесённой суммы: подтверждение отправляется только при предоплате
+      var paidAmount = bookingData.paidAmount || 0;
+      if (paidAmount <= 0) {
+        setButtonState(button, 'error', '❌ Ошибка');
+        showToast('Подтверждение может быть отправлено только при внесении предоплаты', 'error');
+        resetButtonAfterDelay(button, CONFIRM_SEND_ICON, 'Отправить подтверждение');
+        return;
+      }
       var pdfResult = result.pdfResult;
 
       sendConfirmationEmail(

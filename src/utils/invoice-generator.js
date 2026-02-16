@@ -8,6 +8,7 @@
  *  - jspdf.umd.min.js   → глобальная переменная jspdf
  *  - qrcode.js           → глобальная функция qrcode()
  *  - roboto-regular.js   → глобальная переменная ROBOTO_FONT_BASE64
+ *  - stamp-signature.js  → STAMP_IMAGE_BASE64, SIGNATURE_IMAGE_BASE64
  *  - hotel-details.js    → глобальная переменная HOTEL_DETAILS
  */
 
@@ -29,8 +30,8 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   registerCyrillicFont(doc);
 
   var pageWidth = 210;
-  var marginLeft = 20;
-  var marginRight = 20;
+  var marginLeft = 14;
+  var marginRight = 14;
   var contentWidth = pageWidth - marginLeft - marginRight;
 
   var invoiceNumber = generateInvoiceNumber(bookingData.bookingNumber);
@@ -44,61 +45,56 @@ function generateInvoicePDF(bookingData, hotelDetails) {
     surchargeAtHotel = 0;
   }
 
-  var y = 20;
+  var y = 12;
 
   // ─── Шапка: реквизиты отеля ──────────────────────────────
 
-  doc.setFontSize(10);
+  doc.setFontSize(8);
   doc.setTextColor(100, 100, 100);
 
-  doc.text(hotelDetails.name, marginLeft, y);
-  y += 5;
-  doc.text('ИНН ' + hotelDetails.inn + '  КПП ' + hotelDetails.kpp, marginLeft, y);
-  y += 5;
-  doc.text('Адрес отеля: ' + hotelDetails.address, marginLeft, y);
-  y += 5;
-  doc.text(
-    'Тел.: ' + hotelDetails.phone + '    Email: ' + hotelDetails.email,
-    marginLeft,
-    y
-  );
+  doc.text(hotelDetails.name + '    ИНН ' + hotelDetails.inn + '  КПП ' + hotelDetails.kpp, marginLeft, y);
+  y += 4;
+  doc.text('Адрес: ' + hotelDetails.address + '    Тел.: ' + hotelDetails.phone + '    Email: ' + hotelDetails.email, marginLeft, y);
   y += 3;
 
   doc.setDrawColor(200, 200, 200);
   doc.setLineWidth(0.3);
   doc.line(marginLeft, y, pageWidth - marginRight, y);
-  y += 10;
+  y += 8;
 
   // ─── Заголовок счёта ─────────────────────────────────────
 
-  doc.setFontSize(16);
+  doc.setFontSize(14);
   doc.setTextColor(0, 0, 0);
   doc.text('СЧЁТ НА ПРЕДОПЛАТУ', pageWidth / 2, y, { align: 'center' });
-  y += 8;
+  y += 6;
 
-  doc.setFontSize(12);
+  doc.setFontSize(10);
   doc.text(
     '№ ' + invoiceNumber + ' от ' + invoiceDate,
     pageWidth / 2,
     y,
     { align: 'center' }
   );
-  y += 12;
+  y += 10;
 
   // ─── Информация о госте ──────────────────────────────────
 
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
 
   y = drawLabelValue(doc, marginLeft, y, 'Гость:', bookingData.guestName);
   y = drawLabelValue(doc, marginLeft, y, 'Email:', bookingData.guestEmail);
   y = drawLabelValue(doc, marginLeft, y, 'Бронирование №:', bookingData.bookingNumber);
-  y += 5;
+  if (bookingData.guestCount && bookingData.guestCount.total > 0) {
+    y = drawLabelValue(doc, marginLeft, y, 'Количество гостей:', bookingData.guestCount.text || String(bookingData.guestCount.total));
+  }
+  y += 3;
 
   // ─── Таблица с деталями проживания ───────────────────────
 
-  doc.setFontSize(9);
-  var tableHeaders = ['Описание', 'Даты', 'Ночей', 'Цена/сут.', 'Сумма'];
+  doc.setFontSize(8);
+  var tableHeaders = ['Категория номера', 'Даты', 'Ночей', 'Цена/сут.', 'Сумма'];
   var cellPadding = 4;
   var datesStr = bookingData.checkIn + ' - ' + bookingData.checkOut;
   var roomLabelRaw = bookingData.roomType || 'Проживание';
@@ -154,56 +150,51 @@ function generateInvoicePDF(bookingData, hotelDetails) {
 
   var prepayNights = Math.min(3, bookingData.nightsCount);
 
-  y += 4;
-  doc.setFontSize(10);
+  y += 2;
+  doc.setFontSize(9);
   doc.setTextColor(80, 80, 80);
   doc.text(
-    'Предоплата: стоимость первых ' + prepayNights + ' суток',
+    'Предоплата: первые ' + prepayNights + ' суток (' +
+    prepayNights + ' x ' + formatMoney(bookingData.nightlyRate) + ' руб./сут.)',
     marginLeft,
     y
   );
-  y += 5;
-  doc.text(
-    prepayNights + ' ночей x ' + formatMoney(bookingData.nightlyRate) + ' руб./сут.',
-    marginLeft,
-    y
-  );
-  y += 8;
+  y += 6;
 
   // Синий блок «ПРЕДОПЛАТА»
   doc.setFillColor(26, 115, 232);
-  doc.rect(marginLeft, y, contentWidth, 10, 'F');
-  doc.setFontSize(12);
+  doc.rect(marginLeft, y, contentWidth, 9, 'F');
+  doc.setFontSize(11);
   doc.setTextColor(255, 255, 255);
   doc.text(
     'ПРЕДОПЛАТА: ' + formatMoney(bookingData.prepayAmount) + ' руб.',
     pageWidth / 2,
-    y + 7,
+    y + 6.5,
     { align: 'center' }
   );
-  y += 14;
+  y += 12;
 
   // Сумма прописью
-  doc.setFontSize(9);
+  doc.setFontSize(8);
   doc.setTextColor(0, 0, 0);
   doc.text(numberToWordsRu(bookingData.prepayAmount), marginLeft, y);
-  y += 8;
+  y += 6;
 
   // ─── Доплата в отеле ──────────────────────────────────────
 
   doc.setFillColor(245, 166, 35);
-  doc.rect(marginLeft, y, contentWidth, 10, 'F');
-  doc.setFontSize(12);
+  doc.rect(marginLeft, y, contentWidth, 9, 'F');
+  doc.setFontSize(11);
   doc.setTextColor(255, 255, 255);
   doc.text(
     'ДОПЛАТА В ОТЕЛЕ: ' + formatMoney(surchargeAtHotel) + ' руб.',
     pageWidth / 2,
-    y + 7,
+    y + 6.5,
     { align: 'center' }
   );
-  y += 14;
+  y += 12;
 
-  doc.setFontSize(9);
+  doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
   doc.text(
     'Общая стоимость ' + formatMoney(bookingData.totalPrice) + ' руб.' +
@@ -211,44 +202,45 @@ function generateInvoicePDF(bookingData, hotelDetails) {
     marginLeft,
     y
   );
-  y += 8;
+  y += 6;
 
   // ─── Банковские реквизиты ─────────────────────────────────
 
-  doc.setFontSize(11);
+  doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
   doc.text('Банковские реквизиты для оплаты:', marginLeft, y);
-  y += 6;
+  y += 5;
 
-  doc.setFontSize(8);
+  doc.setFontSize(7);
   doc.setTextColor(60, 60, 60);
 
-  y = drawLabelValue(doc, marginLeft, y, 'Получатель:', hotelDetails.name);
-  y = drawLabelValue(doc, marginLeft, y, 'ИНН:', hotelDetails.inn);
-  y = drawLabelValue(doc, marginLeft, y, 'Р/с:', hotelDetails.bankAccount);
-  y = drawLabelValue(doc, marginLeft, y, 'Банк:', hotelDetails.bankName);
-  y = drawLabelValue(doc, marginLeft, y, 'БИК:', hotelDetails.bik);
-  y += 3;
+  y = drawLabelValueCompact(doc, marginLeft, y, 'Получатель:', hotelDetails.name);
+  y = drawLabelValueCompact(doc, marginLeft, y, 'ИНН:', hotelDetails.inn);
+  y = drawLabelValueCompact(doc, marginLeft, y, 'Р/с:', hotelDetails.bankAccount);
+  y = drawLabelValueCompact(doc, marginLeft, y, 'Банк:', hotelDetails.bankName);
+  y = drawLabelValueCompact(doc, marginLeft, y, 'БИК:', hotelDetails.bik);
+  y += 2;
 
   // ─── QR-коды для оплаты ───────────────────────────────────
 
-  var qrSize = 42;
-  var qrGap = 16;
+  // Динамический размер QR: считаем сколько места осталось до конца страницы
+  // Фиксированный контент после QR: подписи + назначение + примечание + директор ≈ 45мм
+  var pageBottom = 284;
+  var fixedAfterQR = 46;
+  var availableForQR = pageBottom - y - fixedAfterQR;
+  var qrSize = Math.min(44, Math.max(28, availableForQR - 16));
+  var qrGap = 14;
   var qrBlockWidth = qrSize * 2 + qrGap;
   var qrStartX = marginLeft + (contentWidth - qrBlockWidth) / 2;
 
-  if (y + qrSize + 30 > 285) {
-    doc.addPage();
-    y = 20;
-  }
-
-  doc.setFontSize(11);
+  doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
   doc.text('Оплата по QR-коду:', marginLeft, y);
-  y += 7;
+  y += 5;
 
   // QR 1: Предоплата
-  var prepayPurpose = 'Предоплата за проживание, бронь ' + bookingData.bookingNumber;
+  var prepayPurpose = 'Предоплата за проживание по бронированию ' +
+    bookingData.bookingNumber + ', ' + (bookingData.guestName || '');
   var prepayQrData = buildPaymentQR(hotelDetails, bookingData.prepayAmount, prepayPurpose);
   var prepayQrImg = generateQRDataUrl(prepayQrData);
 
@@ -258,19 +250,20 @@ function generateInvoicePDF(bookingData, hotelDetails) {
 
   // Подпись под QR 1
   var qr1CenterX = qrStartX + qrSize / 2;
-  doc.setFontSize(10);
+  doc.setFontSize(8);
   doc.setTextColor(26, 115, 232);
-  doc.text('Предоплата', qr1CenterX, y + qrSize + 5, { align: 'center' });
-  doc.setFontSize(11);
+  doc.text('Предоплата', qr1CenterX, y + qrSize + 4, { align: 'center' });
+  doc.setFontSize(9);
   doc.text(
     formatMoney(bookingData.prepayAmount) + ' руб.',
     qr1CenterX,
-    y + qrSize + 10,
+    y + qrSize + 9,
     { align: 'center' }
   );
 
   // QR 2: Полная оплата (со скидкой если есть)
-  var fullPurpose = 'Оплата проживания, бронь ' + bookingData.bookingNumber;
+  var fullPurpose = 'Оплата за проживание по бронированию ' +
+    bookingData.bookingNumber + ', ' + (bookingData.guestName || '');
   var fullQrData = buildPaymentQR(hotelDetails, fullPayment, fullPurpose);
   var fullQrImg = generateQRDataUrl(fullQrData);
 
@@ -282,12 +275,12 @@ function generateInvoicePDF(bookingData, hotelDetails) {
 
   // Подпись под QR 2
   var qr2CenterX = qr2X + qrSize / 2;
-  doc.setFontSize(10);
+  doc.setFontSize(8);
   doc.setTextColor(52, 168, 83);
 
   if (discountPercent > 0) {
     doc.text(
-      'Оплатить сразу всю стоимость',
+      'Оплатить всю стоимость',
       qr2CenterX,
       y + qrSize + 4,
       { align: 'center' }
@@ -298,41 +291,52 @@ function generateInvoicePDF(bookingData, hotelDetails) {
       y + qrSize + 9,
       { align: 'center' }
     );
-    doc.setFontSize(10);
+    doc.setFontSize(8);
     doc.text(
-      '(' + formatMoney(fullPayment) + ' руб. вместо ' + formatMoney(bookingData.totalPrice) + ' руб.)',
+      '(' + formatMoney(fullPayment) + ' вместо ' + formatMoney(bookingData.totalPrice) + ' руб.)',
       qr2CenterX,
-      y + qrSize + 14,
+      y + qrSize + 13,
       { align: 'center' }
     );
   } else {
-    doc.text('Полная оплата', qr2CenterX, y + qrSize + 5, { align: 'center' });
-    doc.setFontSize(11);
+    doc.text('Полная оплата', qr2CenterX, y + qrSize + 4, { align: 'center' });
+    doc.setFontSize(9);
     doc.text(
       formatMoney(fullPayment) + ' руб.',
       qr2CenterX,
-      y + qrSize + 10,
+      y + qrSize + 9,
       { align: 'center' }
     );
   }
 
-  y += discountPercent > 0 ? qrSize + 21 : qrSize + 16;
+  y += discountPercent > 0 ? qrSize + 18 : qrSize + 14;
 
-  // ─── Назначение платежа ──────────────────────────────────
+  // ─── Назначение платежа (выделенный блок) ───────────────
+
+  doc.setDrawColor(26, 115, 232);
+  doc.setLineWidth(0.5);
+  var purposeText =
+    'Оплата за проживание по бронированию ' +
+    bookingData.bookingNumber +
+    ', ' + (bookingData.guestName || '');
+  doc.setFontSize(8);
+  var splitPurpose = doc.splitTextToSize(purposeText, contentWidth - 10);
+  var purposeBlockH = 7 + splitPurpose.length * 4 + 4; // +4 нижний паддинг
+
+  doc.setFillColor(235, 245, 255);
+  doc.roundedRect(marginLeft, y, contentWidth, purposeBlockH, 2, 2, 'FD');
 
   doc.setFontSize(8);
-  doc.setTextColor(80, 80, 80);
-  var paymentPurpose =
-    'Назначение платежа: Оплата за проживание по бронированию ' +
-    bookingData.bookingNumber +
-    ' (' + bookingData.checkIn + ' - ' + bookingData.checkOut + ')';
-  var splitPurpose = doc.splitTextToSize(paymentPurpose, contentWidth);
-  doc.text(splitPurpose, marginLeft, y);
-  y += splitPurpose.length * 4 + 6;
+  doc.setTextColor(26, 115, 232);
+  doc.text('Назначение платежа:', marginLeft + 4, y + 5);
+  doc.setFontSize(8);
+  doc.setTextColor(0, 0, 0);
+  doc.text(splitPurpose, marginLeft + 4, y + 10);
+  y += purposeBlockH + 4;
 
   // ─── Примечание ──────────────────────────────────────────
 
-  doc.setFontSize(7);
+  doc.setFontSize(6.5);
   doc.setTextColor(130, 130, 130);
 
   var note =
@@ -341,6 +345,54 @@ function generateInvoicePDF(bookingData, hotelDetails) {
     'Для оплаты отсканируйте QR-код камерой телефона или в приложении банка.';
   var splitNote = doc.splitTextToSize(note, contentWidth);
   doc.text(splitNote, marginLeft, y);
+  y += splitNote.length * 3 + 6;
+
+  // ─── Подпись директора (всё на одной строке) ──────────────
+
+  doc.setDrawColor(200, 200, 200);
+  doc.setLineWidth(0.3);
+  doc.line(marginLeft, y, pageWidth - marginRight, y);
+  y += 8;
+
+  var signatureLineY = y; // линия «Директор ___подпись___ / ФИО /»
+  doc.setFontSize(9);
+  doc.setTextColor(0, 0, 0);
+
+  var directorPrefix = 'Директор ' + hotelDetails.name;
+  var directorSuffix = '/ Иванчей Е.А. /';
+  var prefixWidth = doc.getTextWidth(directorPrefix);
+  var signLineX = marginLeft + prefixWidth + 4;
+  var suffixX = signLineX + 40;
+
+  // Печать и подпись по центру линии подписи (___________)
+  if (typeof STAMP_IMAGE_BASE64 !== 'undefined' && STAMP_IMAGE_BASE64) {
+    var stampW = 42;
+    var stampH = 42 * (1600 / 747);
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({ opacity: 0.75 }));
+    doc.addImage(
+      'data:image/png;base64,' + STAMP_IMAGE_BASE64,
+      'PNG',
+      signLineX + 10, signatureLineY - stampH * 0.55,
+      stampW, stampH
+    );
+    doc.restoreGraphicsState();
+  }
+  if (typeof SIGNATURE_IMAGE_BASE64 !== 'undefined' && SIGNATURE_IMAGE_BASE64) {
+    var sigW = 30;
+    var sigH = 30 * (1280 / 597);
+    doc.addImage(
+      'data:image/png;base64,' + SIGNATURE_IMAGE_BASE64,
+      'PNG',
+      signLineX - 2, signatureLineY - sigH * 0.55,
+      sigW, sigH
+    );
+  }
+
+  // Текст поверх изображений
+  doc.text(directorPrefix, marginLeft, signatureLineY);
+  doc.text('___________________', signLineX, signatureLineY);
+  doc.text(directorSuffix, suffixX, signatureLineY);
 
   // ─── Формирование результата ─────────────────────────────
 
@@ -378,6 +430,15 @@ function drawLabelValue(doc, x, y, label, value) {
   doc.setTextColor(0, 0, 0);
   doc.text(value || '—', x + labelWidth, y);
   return y + 5;
+}
+
+function drawLabelValueCompact(doc, x, y, label, value) {
+  var labelWidth = doc.getTextWidth(label) + 2;
+  doc.setTextColor(100, 100, 100);
+  doc.text(label, x, y);
+  doc.setTextColor(0, 0, 0);
+  doc.text(value || '—', x + labelWidth, y);
+  return y + 4;
 }
 
 function formatMoney(amount) {

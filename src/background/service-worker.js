@@ -6,6 +6,9 @@
  *  - Отправляет email с PDF через backend API (с API-ключом)
  *  - Управляет настройками (backendUrl, apiKey)
  *
+ * PDF отправляется как бинарный файл через FormData (multipart/form-data),
+ * что на ~33% меньше по размеру, чем base64 в JSON.
+ *
  * SMTP-данные хранятся на сервере (Vercel env vars), не в расширении.
  */
 
@@ -33,66 +36,20 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   }
 });
 
-// ─── Отправка счёта на email через backend API ─────────────────
+// ─── Вспомогательные функции ───────────────────────────────────
 
 /**
- * Отправляет PDF-счёт на email гостя через серверный API.
- *
- * @param {Object} data
- * @param {string} data.to — email получателя
- * @param {string} data.guestName — имя гостя
- * @param {string} data.bookingNumber — номер бронирования
- * @param {string} data.pdfBase64 — PDF-файл в формате base64
- * @param {string} data.pdfFilename — имя файла PDF
- * @returns {Promise<Object>}
+ * Декодирует base64-строку в бинарный Uint8Array.
+ * Используется для конвертации PDF из base64 в бинарный Blob перед отправкой.
  */
-async function handleSendInvoice(data) {
-  // Получаем настройки из хранилища
-  var settings = await getSettings();
-
-  if (!settings.backendUrl) {
-    throw new Error('Не указан URL backend-сервера. Откройте настройки расширения.');
+function base64ToUint8Array(base64) {
+  var binaryString = atob(base64);
+  var bytes = new Uint8Array(binaryString.length);
+  for (var i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
   }
-
-  if (!settings.apiKey) {
-    throw new Error('Не указан API-ключ. Откройте настройки расширения.');
-  }
-
-  // Формируем тему и тело письма (используем переданные или значения по умолчанию)
-  var emailSubject = data.emailSubject ||
-    ('Счёт на предоплату — бронирование №' + data.bookingNumber);
-  var emailBody = data.emailBody ||
-    ('Добрый день, ' + data.guestName + '!\n\n' +
-    'Направляем вам счёт на предоплату по бронированию №' + data.bookingNumber + '.\n' +
-    'Счёт находится в приложении к данному письму.\n\n' +
-    'С уважением,\n' +
-    'Служба бронирования');
-
-  // Отправляем запрос на backend (без SMTP-данных — они на сервере)
-  var response = await fetch(settings.backendUrl + '/api/send-invoice', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': settings.apiKey
-    },
-    body: JSON.stringify({
-      to: data.to,
-      subject: emailSubject,
-      text: emailBody,
-      pdfBase64: data.pdfBase64,
-      pdfFilename: data.pdfFilename
-    })
-  });
-
-  if (!response.ok) {
-    var errorText = await response.text();
-    throw new Error('Сервер вернул ошибку: ' + response.status + ' — ' + errorText);
-  }
-
-  return await response.json();
+  return bytes;
 }
-
-// ─── Вспомогательные функции ───────────────────────────────────
 
 /** Читает настройки из chrome.storage.local. */
 function getSettings() {
@@ -104,4 +61,78 @@ function getSettings() {
       }
     );
   });
+}
+
+// ─── Отправка счёта на email через backend API ─────────────────
+
+/**
+ * Отправляет PDF-счёт на email гостя через серверный API.
+ *
+ * PDF отправляется как бинарный файл в FormData (multipart/form-data),
+ * что позволяет избежать overhead base64-кодирования (~33%) и
+ * укладываться в лимиты payload Vercel serverless functions.
+ *
+ * @param {Object} data
+ * @param {string} data.to — email получателя
+ * @param {string} data.guestName — имя гостя
+ * @param {string} data.bookingNumber — номер бронирования
+ * @param {string} data.pdfBase64 — PDF-файл в формате base64
+ * @param {string} data.pdfFilename — имя файла PDF
+ * @param {string} [data.emailSubject] — тема письма (опционально)
+ * @param {string} [data.emailBody] — тело письма (опционально)
+ * @returns {Promise<Object>}
+ */
+async function handleSendInvoice(data) {
+  var settings = await getSettings();
+
+  if (!settings.backendUrl) {
+    throw new Error('Не указан URL backend-сервера. Откройте настройки расширения.');
+  }
+
+  if (!settings.apiKey) {
+    throw new Error('Не указан API-ключ. Откройте настройки расширения.');
+  }
+
+  var emailSubject = data.emailSubject ||
+    ('Счёт на предоплату — бронирование №' + data.bookingNumber);
+  var emailBody = data.emailBody ||
+    ('Здравствуйте!\n\n' +
+    'К письму прилагается документ по бронированию №' + data.bookingNumber + '.\n\n' +
+    'Спасибо, что выбрали нас, «Альбатрос» ждёт Вас!\n' +
+    '__\n' +
+    'С уважением, отдел бронирования ГРК «Альбатрос»\n' +
+    'Официальный сайт: https://albatrosmore.ru/\n' +
+    ' 8 (800) 101-47-17\n' +
+    ' 8 (861) 213-21-17\n\n' +
+    'Альбатрос — место, куда возвращаются за счастьем');
+
+  // Декодируем PDF из base64 в бинарный Blob
+  var pdfBytes = base64ToUint8Array(data.pdfBase64);
+  var pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+
+  console.log('[KonturPrepay] Размер PDF: ' + Math.round(pdfBytes.length / 1024) + ' КБ (бинарный)');
+
+  // Формируем FormData с метаданными и бинарным PDF
+  var formData = new FormData();
+  formData.append('to', data.to);
+  formData.append('subject', emailSubject);
+  formData.append('text', emailBody);
+  formData.append('pdfFilename', data.pdfFilename);
+  formData.append('pdf', pdfBlob, data.pdfFilename);
+
+  // Отправляем multipart/form-data запрос (без Content-Type — браузер установит сам с boundary)
+  var response = await fetch(settings.backendUrl + '/api/send-invoice', {
+    method: 'POST',
+    headers: {
+      'X-API-Key': settings.apiKey
+    },
+    body: formData
+  });
+
+  if (!response.ok) {
+    var errorText = await response.text();
+    throw new Error('Сервер вернул ошибку: ' + response.status + ' — ' + errorText);
+  }
+
+  return await response.json();
 }

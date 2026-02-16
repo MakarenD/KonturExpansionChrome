@@ -14,7 +14,16 @@
  * Заголовки:
  *   X-API-Key: <ваш API-ключ>
  *
- * Тело запроса (JSON):
+ * Тело запроса: multipart/form-data
+ *   Поля:
+ *     to          — email получателя
+ *     subject     — тема письма
+ *     text        — текст письма
+ *     pdfFilename — имя файла PDF
+ *   Файл:
+ *     pdf         — PDF-файл (бинарный)
+ *
+ * Также поддерживается legacy-формат JSON (для обратной совместимости):
  * {
  *   "to":          "guest@example.com",
  *   "subject":     "Счёт на предоплату",
@@ -30,8 +39,78 @@
 var nodemailer = require('nodemailer');
 var MailComposer = require('nodemailer/lib/mail-composer');
 var { ImapFlow } = require('imapflow');
+var Busboy = require('busboy');
 
-module.exports = async function handler(req, res) {
+// ─── Парсинг multipart/form-data ────────────────────────────────
+
+/**
+ * Парсит multipart/form-data запрос с помощью busboy.
+ * Возвращает { fields: { key: value }, pdfBuffer: Buffer }.
+ */
+function parseMultipart(req) {
+  return new Promise(function (resolve, reject) {
+    var fields = {};
+    var pdfBuffer = null;
+
+    var busboy = Busboy({ headers: req.headers });
+
+    busboy.on('field', function (fieldname, val) {
+      fields[fieldname] = val;
+    });
+
+    busboy.on('file', function (fieldname, file) {
+      if (fieldname === 'pdf') {
+        var chunks = [];
+        file.on('data', function (chunk) {
+          chunks.push(chunk);
+        });
+        file.on('end', function () {
+          pdfBuffer = Buffer.concat(chunks);
+        });
+      } else {
+        file.resume();
+      }
+    });
+
+    busboy.on('finish', function () {
+      resolve({ fields: fields, pdfBuffer: pdfBuffer });
+    });
+
+    busboy.on('error', function (err) {
+      reject(err);
+    });
+
+    req.pipe(busboy);
+  });
+}
+
+// ─── Парсинг raw JSON (fallback для обратной совместимости) ──────
+
+/**
+ * Читает raw body из req stream и парсит как JSON.
+ * Используется когда bodyParser отключён, но запрос приходит как JSON.
+ */
+function parseRawJson(req) {
+  return new Promise(function (resolve, reject) {
+    var chunks = [];
+    req.on('data', function (chunk) {
+      chunks.push(chunk);
+    });
+    req.on('end', function () {
+      try {
+        var raw = Buffer.concat(chunks).toString('utf-8');
+        resolve(JSON.parse(raw));
+      } catch (err) {
+        reject(new Error('Не удалось разобрать JSON: ' + err.message));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+// ─── Основной обработчик ─────────────────────────────────────────
+
+async function handler(req, res) {
   // CORS preflight
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -83,17 +162,46 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // ─── Валидация тела запроса ──────────────────────────────
+    // ─── Разбор тела запроса (multipart или JSON) ────────────
 
-    var body = req.body;
+    var to, subject, text, pdfFilename, pdfBuffer;
+    var contentType = req.headers['content-type'] || '';
 
-    var requiredFields = ['to', 'subject', 'text', 'pdfBase64', 'pdfFilename'];
-    var missingFields = [];
-    for (var i = 0; i < requiredFields.length; i++) {
-      if (!body[requiredFields[i]]) {
-        missingFields.push(requiredFields[i]);
+    if (contentType.includes('multipart/form-data')) {
+      // Новый формат: multipart/form-data с бинарным PDF
+      var parsed = await parseMultipart(req);
+      to = parsed.fields.to;
+      subject = parsed.fields.subject;
+      text = parsed.fields.text;
+      pdfFilename = parsed.fields.pdfFilename;
+      pdfBuffer = parsed.pdfBuffer;
+
+      console.log('[SendInvoice] Получен multipart-запрос, PDF размер:',
+        pdfBuffer ? pdfBuffer.length + ' байт' : 'отсутствует');
+    } else {
+      // Legacy формат: JSON с base64-кодированным PDF
+      var body = req.body || await parseRawJson(req);
+      to = body.to;
+      subject = body.subject;
+      text = body.text;
+      pdfFilename = body.pdfFilename;
+
+      if (body.pdfBase64) {
+        pdfBuffer = Buffer.from(body.pdfBase64, 'base64');
       }
+
+      console.log('[SendInvoice] Получен JSON-запрос, PDF размер:',
+        pdfBuffer ? pdfBuffer.length + ' байт' : 'отсутствует');
     }
+
+    // ─── Валидация полей ─────────────────────────────────────
+
+    var missingFields = [];
+    if (!to) missingFields.push('to');
+    if (!subject) missingFields.push('subject');
+    if (!text) missingFields.push('text');
+    if (!pdfFilename) missingFields.push('pdfFilename');
+    if (!pdfBuffer || pdfBuffer.length === 0) missingFields.push('pdf');
 
     if (missingFields.length > 0) {
       return res.status(400).json({
@@ -103,15 +211,12 @@ module.exports = async function handler(req, res) {
     }
 
     // Валидация email
-    if (!/^[\w.+-]+@[\w-]+\.[\w.]+$/.test(body.to)) {
+    if (!/^[\w.+-]+@[\w-]+\.[\w.]+$/.test(to)) {
       return res.status(400).json({
         success: false,
-        error: 'Некорректный email получателя: ' + body.to
+        error: 'Некорректный email получателя: ' + to
       });
     }
-
-    // Конвертируем PDF из base64 в Buffer
-    var pdfBuffer = Buffer.from(body.pdfBase64, 'base64');
 
     // Проверяем что это похоже на PDF (начинается с %PDF)
     if (pdfBuffer.length < 4 || pdfBuffer.toString('utf8', 0, 4) !== '%PDF') {
@@ -138,15 +243,15 @@ module.exports = async function handler(req, res) {
 
     var mailOptions = {
       from: {
-        name: 'Служба бронирования',
+        name: 'ГРК Альбатрос',
         address: smtpEmail
       },
-      to: body.to,
-      subject: body.subject,
-      text: body.text,
+      to: to,
+      subject: subject,
+      text: text,
       attachments: [
         {
-          filename: body.pdfFilename,
+          filename: pdfFilename,
           content: pdfBuffer,
           contentType: 'application/pdf'
         }
@@ -155,7 +260,7 @@ module.exports = async function handler(req, res) {
 
     var info = await transporter.sendMail(mailOptions);
 
-    console.log('[SendInvoice] Email отправлен:', info.messageId, '→', body.to);
+    console.log('[SendInvoice] Email отправлен:', info.messageId, '→', to);
 
     // ─── Сохранение в «Отправленные» через IMAP ────────────
     // Best-effort: если IMAP-сохранение не удалось, письмо уже отправлено
@@ -224,5 +329,15 @@ module.exports = async function handler(req, res) {
       success: false,
       error: errorMessage
     });
+  }
+}
+
+module.exports = handler;
+
+// Отключаем стандартный bodyParser Vercel для поддержки multipart/form-data.
+// Также увеличиваем лимит для JSON-запросов (legacy fallback).
+module.exports.config = {
+  api: {
+    bodyParser: false
   }
 };

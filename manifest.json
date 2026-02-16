@@ -24,6 +24,7 @@
         "libs/jspdf.umd.min.js",
         "libs/qrcode.js",
         "src/fonts/roboto-regular.js",
+        "src/images/stamp-signature.js",
         "src/config/hotel-details.js",
         "src/utils/data-parser.js",
         "src/utils/invoice-generator.js",

@@ -257,20 +257,22 @@ function parseRoomType(container) {
     // Ищем div который содержит ТОЛЬКО название категории
     // (не содержит "Оплата", номера, дат и т.д.)
     if (div.children.length === 0 || (div.children.length === 1 && div.children[0].tagName === 'SPAN')) {
-      // Проверяем что это похоже на название категории номера
       if (t && t.length > 3 && t.length < 60 &&
           !t.match(/\d/) &&
-          !t.match(/Оплата|Гости|Информация|Плательщик|Комментарий|Задачи|Услуги|История|Расчет|Бронирование/) &&
-          !t.match(/₽|руб|долг|оплачено|Тариф|Заселить/) &&
+          !t.match(/оплат|внести|гости|информация|плательщик|комментарий|задачи|услуги|история|расчет|бронирование/i) &&
+          !t.match(/₽|руб|долг|тариф|заселить|заселен|подтвержд|отправить|скачать|редактировать|добавить|другие|помощь|настройки/i) &&
           !t.match(/@|http|OTL/) &&
           t.match(/[а-яА-ЯёЁ]/) &&
           div.closest('[data-oid="MainPageTab"]') === null) {
         // Проверяем, что этот элемент находится в области деталей номера
-        var parent = div.parentElement;
-        if (parent) {
-          var siblingText = parent.textContent || '';
-          // Рядом должен быть номер комнаты (число 1-999)
-          if (siblingText.match(/\b\d{1,3}\b/) && siblingText.length < 200) {
+        // Поднимаемся до 5 уровней вверх по DOM, ищем номер комнаты рядом
+        var ancestor = div;
+        for (var up = 0; up < 5; up++) {
+          if (ancestor.parentElement) {
+            ancestor = ancestor.parentElement;
+          }
+          var ancestorText = ancestor.textContent || '';
+          if (ancestorText.match(/\b\d{1,3}\b/) && ancestorText.length < 500) {
             return t;
           }
         }
@@ -286,6 +288,7 @@ function parseRoomType(container) {
     var st = (span.textContent || '').trim();
     if (st && st.length > 5 && st.length < 50 &&
         !st.match(/\d/) &&
+        !st.match(/оплат|внести/i) &&
         st.match(/номер|люкс|стандарт|комфорт|эконом|студия|сюит|апартамент|полулюкс|двух|одно|трёх|четырёх|семейн|делюкс/i)) {
       return st;
     }
@@ -480,23 +483,105 @@ function parseDebtAmount(container, text) {
   return 0;
 }
 
-/** Извлекает количество гостей из секции «Гости». */
+/**
+ * Извлекает количество гостей из секции «Гости».
+ *
+ * Контур Отель отображает гостей так:
+ *   «Гости  2[adult-icon]  1[child-icon] 7 лет»
+ * textContent склеивается в «Гости217 лет», поэтому парсим по DOM-структуре:
+ *   1. Считаем записи «Гость N» (каждый гость — отдельная карточка)
+ *   2. Считаем взрослых и детей по иконкам (SVG путь для ребёнка содержит характерный фрагмент)
+ *   3. Извлекаем возрасты детей из элементов data-tid="Age_N"
+ *
+ * @returns {{ adults: number, children: number, childrenAges: number[], total: number, text: string }}
+ */
 function parseGuestCount(container) {
+  var result = { adults: 0, children: 0, childrenAges: [], total: 0, text: '' };
+
   var guestsSection = findSectionByLabel(container, 'Гости');
-  if (guestsSection) {
-    var text = guestsSection.textContent || '';
-    // Число сразу после "Гости" (может быть без пробела)
-    var match = text.match(/Гости\s*(\d+)/);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
-    // Фоллбэк: считаем записи "Гость N"
-    var entries = text.match(/Гость\s+\d+/g);
-    if (entries) {
-      return entries.length;
+  if (!guestsSection) return result;
+
+  // Способ 1: считаем карточки «Гость N»
+  var sectionText = guestsSection.textContent || '';
+  var guestEntries = sectionText.match(/Гость\s+\d+/g);
+  if (guestEntries) {
+    result.total = guestEntries.length;
+  }
+
+  // Способ 2: извлекаем возрасты детей из data-tid="Age_N"
+  var ageElements = guestsSection.querySelectorAll('[data-tid^="Age_"]');
+  for (var i = 0; i < ageElements.length; i++) {
+    var ageText = (ageElements[i].textContent || '').trim();
+    var age = parseInt(ageText, 10);
+    if (!isNaN(age) && age >= 0 && age < 18) {
+      result.childrenAges.push(age);
     }
   }
-  return 0;
+  result.children = result.childrenAges.length;
+
+  // Взрослые = общее количество минус дети
+  result.adults = Math.max(0, result.total - result.children);
+
+  // Если «Гость N» не нашлось, пробуем взять итоговые цифры
+  // из блока-сводки рядом с заголовком «Гости»
+  if (result.total === 0) {
+    // Ищем div с иконками (сводка «2 [adult] 1 [child]»)
+    var summaryDivs = guestsSection.querySelectorAll('div');
+    for (var s = 0; s < summaryDivs.length; s++) {
+      var div = summaryDivs[s];
+      if (div.children.length === 2 &&
+          div.children[0].tagName === 'SPAN' &&
+          div.children[1].tagName &&
+          div.children[1].querySelector &&
+          div.children[1].querySelector('svg')) {
+        var numText = (div.children[0].textContent || '').trim();
+        var num = parseInt(numText, 10);
+        if (!isNaN(num) && num > 0 && num < 100) {
+          // Определяем тип по SVG-иконке: ребёнок имеет характерный path
+          var svgHtml = div.children[1].innerHTML || '';
+          if (svgHtml.indexOf('1.325 3.24') !== -1 ||
+              svgHtml.indexOf('M10 .5a3.563') !== -1) {
+            result.children = num;
+          } else {
+            result.adults = num;
+          }
+        }
+      }
+    }
+    result.total = result.adults + result.children;
+  }
+
+  // Формируем читаемый текст
+  var parts = [];
+  if (result.adults > 0) {
+    parts.push(result.adults + ' ' + pluralize(result.adults, 'взрослый', 'взрослых', 'взрослых'));
+  }
+  if (result.children > 0) {
+    var childStr = result.children + ' ' +
+      pluralize(result.children, 'ребёнок', 'ребёнка', 'детей');
+    if (result.childrenAges.length > 0) {
+      var ageStrs = [];
+      for (var a = 0; a < result.childrenAges.length; a++) {
+        var ag = result.childrenAges[a];
+        ageStrs.push(ag + ' ' + pluralize(ag, 'год', 'года', 'лет'));
+      }
+      childStr += ' (' + ageStrs.join(', ') + ')';
+    }
+    parts.push(childStr);
+  }
+  result.text = parts.join(', ');
+
+  return result;
+}
+
+/** Склонение существительных: 1 гость, 2 гостя, 5 гостей */
+function pluralize(n, one, few, many) {
+  var abs = Math.abs(n) % 100;
+  var lastDigit = abs % 10;
+  if (abs >= 11 && abs <= 19) return many;
+  if (lastDigit === 1) return one;
+  if (lastDigit >= 2 && lastDigit <= 4) return few;
+  return many;
 }
 
 /** Извлекает время заезда и выезда (HH:MM). */

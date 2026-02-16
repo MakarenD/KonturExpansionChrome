@@ -9,6 +9,7 @@
  * Зависимости (загружены ранее):
  *  - jspdf.umd.min.js   → глобальная переменная jspdf
  *  - roboto-regular.js   → глобальная переменная ROBOTO_FONT_BASE64
+ *  - stamp-signature.js  → STAMP_IMAGE_BASE64, SIGNATURE_IMAGE_BASE64
  *  - hotel-details.js    → глобальная переменная HOTEL_DETAILS
  *  - invoice-generator.js → вспомогательные функции (registerCyrillicFont и т.д.)
  */
@@ -64,7 +65,7 @@ function generateConfirmationPDF(bookingData, hotelDetails) {
 
   doc.setFontSize(16);
   doc.setTextColor(0, 0, 0);
-  doc.text('ПОДТВЕРЖДЕНИЕ БРОНИРОВАНИЯ', pageWidth / 2, y, { align: 'center' });
+  doc.text('ПОДТВЕРЖДЕНИЕ БРОНИРОВАНИЯ (ВАУЧЕР)', pageWidth / 2, y, { align: 'center' });
   y += 8;
 
   doc.setFontSize(11);
@@ -127,11 +128,11 @@ function generateConfirmationPDF(bookingData, hotelDetails) {
     String(bookingData.nightsCount || '—')
   );
 
-  if (bookingData.guestCount) {
+  if (bookingData.guestCount && bookingData.guestCount.total > 0) {
     y = drawLabelValue(
       doc, marginLeft, y,
       'Количество гостей:',
-      String(bookingData.guestCount)
+      bookingData.guestCount.text || String(bookingData.guestCount.total)
     );
   }
   y += 8;
@@ -215,20 +216,70 @@ function generateConfirmationPDF(bookingData, hotelDetails) {
   doc.setFontSize(9);
   doc.setTextColor(80, 80, 80);
 
-  var checkInTimeStr = bookingData.checkInTime || '15:00';
-  var checkOutTimeStr = bookingData.checkOutTime || '12:00';
+  var bulletIndent = marginLeft + 2;
+  var bulletTextWidth = contentWidth - 4;
 
   var policies = [
-    'Заезд с ' + checkInTimeStr + ', выезд до ' + checkOutTimeStr,
-    'При заезде необходимо предъявить документ, удостоверяющий личность',
-    'Оплата оставшейся суммы производится при заселении'
+    'Заезд с 15:00, выезд до 12:00.',
+    'При заезде необходимо предъявить паспорта граждан РФ на всех проживающих, свидетельства о рождении на детей, ваучер и квитанцию об оплате.',
+    'Оплата оставшейся суммы производится при заселении.',
+    'Дети до 4-х лет включительно размещаются и питаются бесплатно (без предоставления доп. места).'
   ];
 
   for (var p = 0; p < policies.length; p++) {
-    doc.text('\u2022 ' + policies[p], marginLeft + 2, y);
-    y += 5;
+    var policyLines = doc.splitTextToSize('\u2022 ' + policies[p], bulletTextWidth);
+    doc.text(policyLines, bulletIndent, y);
+    y += policyLines.length * 4.5;
   }
-  y += 8;
+  y += 3;
+
+  // «В стоимость номера включено» — подсекция
+  doc.setFontSize(9);
+  doc.setTextColor(80, 80, 80);
+  doc.text('\u2022 В стоимость номера включено:', bulletIndent, y);
+  y += 5;
+
+  var inclusions = [
+    'Проживание в номере выбранного типа',
+    'Трехразовое питание по системе «шведский стол»',
+    'Комплекс бассейнов (при благоприятных погодных условиях)',
+    'Детские центры «Альби» и «Островок»',
+    'Развлекательные программы',
+    'Охраняемая парковка',
+    'Спа-комплекс'
+  ];
+
+  for (var inc = 0; inc < inclusions.length; inc++) {
+    doc.text('    – ' + inclusions[inc], marginLeft + 4, y);
+    y += 4.5;
+  }
+  y += 6;
+
+  // ─── Условия отмены бронирования ──────────────────────────
+
+  // Проверяем, хватает ли места на странице
+  if (y + 30 > 275) {
+    doc.addPage();
+    y = 20;
+  }
+
+  doc.setFontSize(10);
+  doc.setTextColor(0, 0, 0);
+  doc.text('Условия отмены бронирования:', marginLeft, y);
+  y += 6;
+
+  doc.setFontSize(8);
+  doc.setTextColor(80, 80, 80);
+
+  var cancelPolicy =
+    'Изменение бронирования осуществляется не позднее, чем за 15 (пятнадцать) календарных дней ' +
+    'до заявленной даты заезда. В случае отмены бронирования менее, чем за 15 (пятнадцать) ' +
+    'календарных дней до заявленной даты заезда, с Заказчика удерживается плата в размере полной ' +
+    'стоимости (без учета скидок, если таковые применялись при оплате) 1 (одних) суток проживания ' +
+    'за каждый забронированный номер.';
+  var splitCancel = doc.splitTextToSize(cancelPolicy, contentWidth - 4);
+  doc.text(splitCancel, marginLeft + 2, y);
+  y += splitCancel.length * 4 + 6;
 
   // ─── Контактная информация ────────────────────────────────
 
@@ -268,6 +319,59 @@ function generateConfirmationPDF(bookingData, hotelDetails) {
     'Просьба сохранить его и предъявить при заселении.';
   var splitNote = doc.splitTextToSize(note, contentWidth);
   doc.text(splitNote, marginLeft, y);
+  y += splitNote.length * 3.5 + 10;
+
+  // ─── Подпись директора (всё на одной строке) ──────────────
+
+  if (y + 35 > 285) {
+    doc.addPage();
+    y = 20;
+  }
+
+  doc.setDrawColor(200, 200, 200);
+  doc.setLineWidth(0.3);
+  doc.line(marginLeft, y, pageWidth - marginRight, y);
+  y += 8;
+
+  var signatureLineY = y;
+  doc.setFontSize(9);
+  doc.setTextColor(0, 0, 0);
+
+  var directorPrefix = 'Директор ' + hotelDetails.name;
+  var directorSuffix = '/ Иванчей Е.А. /';
+  var prefixWidth = doc.getTextWidth(directorPrefix);
+  var signLineX = marginLeft + prefixWidth + 4;
+  var suffixX = signLineX + 40;
+
+  // Печать и подпись по центру линии подписи (___________)
+  if (typeof STAMP_IMAGE_BASE64 !== 'undefined' && STAMP_IMAGE_BASE64) {
+    var stampW = 42;
+    var stampH = 42 * (1600 / 747);
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({ opacity: 0.75 }));
+    doc.addImage(
+      'data:image/png;base64,' + STAMP_IMAGE_BASE64,
+      'PNG',
+      signLineX + 10, signatureLineY - stampH * 0.55,
+      stampW, stampH
+    );
+    doc.restoreGraphicsState();
+  }
+  if (typeof SIGNATURE_IMAGE_BASE64 !== 'undefined' && SIGNATURE_IMAGE_BASE64) {
+    var sigW = 30;
+    var sigH = 30 * (1280 / 597);
+    doc.addImage(
+      'data:image/png;base64,' + SIGNATURE_IMAGE_BASE64,
+      'PNG',
+      signLineX - 2, signatureLineY - sigH * 0.55,
+      sigW, sigH
+    );
+  }
+
+  // Текст поверх изображений
+  doc.text(directorPrefix, marginLeft, signatureLineY);
+  doc.text('___________________', signLineX, signatureLineY);
+  doc.text(directorSuffix, suffixX, signatureLineY);
 
   // ─── Формирование результата ──────────────────────────────
 
