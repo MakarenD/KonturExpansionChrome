@@ -97,13 +97,29 @@ function generateInvoicePDF(bookingData, hotelDetails) {
 
   // ─── Таблица с деталями проживания ───────────────────────
 
+  doc.setFontSize(9);
   var tableHeaders = ['Описание', 'Даты', 'Ночей', 'Цена/сут.', 'Сумма'];
-  var colWidths = [50, 40, 18, 30, 32];
+  var cellPadding = 4;
+  var datesStr = bookingData.checkIn + ' - ' + bookingData.checkOut;
+  var roomLabelRaw = bookingData.roomType || 'Проживание';
+  var nightsStr = String(bookingData.nightsCount);
+  var rateStr = formatMoney(bookingData.nightlyRate);
+  var totalStr = formatMoney(bookingData.totalPrice);
+
+  var colWidths = calcTableColumnWidths(doc, contentWidth, tableHeaders, [
+    roomLabelRaw,
+    datesStr,
+    nightsStr,
+    rateStr,
+    totalStr
+  ], [25, 22, 12, 18, 22]);
+
+  var roomLabel = truncateToWidth(doc, roomLabelRaw, colWidths[0] - cellPadding);
+
   var tableX = marginLeft;
 
   doc.setFillColor(240, 240, 240);
   doc.rect(tableX, y, contentWidth, 8, 'F');
-  doc.setFontSize(9);
   doc.setTextColor(50, 50, 50);
 
   var headerX = tableX + 2;
@@ -117,21 +133,18 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   doc.line(tableX, y, tableX + contentWidth, y);
 
   y += 1;
-  doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
 
-  var datesStr = bookingData.checkIn + ' - ' + bookingData.checkOut;
-
   var rowX = tableX + 2;
-  doc.text(bookingData.roomType || 'Проживание', rowX, y + 5);
+  doc.text(roomLabel, rowX, y + 5);
   rowX += colWidths[0];
-  doc.text(truncateText(datesStr, 38), rowX, y + 5);
+  doc.text(datesStr, rowX, y + 5);
   rowX += colWidths[1];
-  doc.text(String(bookingData.nightsCount), rowX, y + 5);
+  doc.text(nightsStr, rowX, y + 5);
   rowX += colWidths[2];
-  doc.text(formatMoney(bookingData.nightlyRate), rowX, y + 5);
+  doc.text(rateStr, rowX, y + 5);
   rowX += colWidths[3];
-  doc.text(formatMoney(bookingData.totalPrice), rowX, y + 5);
+  doc.text(totalStr, rowX, y + 5);
   y += 8;
 
   doc.line(tableX, y, tableX + contentWidth, y);
@@ -376,6 +389,51 @@ function truncateText(text, maxLen) {
     return text;
   }
   return text.substring(0, maxLen - 3) + '...';
+}
+
+/**
+ * Вычисляет ширины колонок таблицы по фактическому размеру текста.
+ * @param {Object} doc — документ jsPDF (шрифт и размер уже заданы)
+ * @param {number} totalWidth — общая доступная ширина (mm)
+ * @param {string[]} headers — заголовки колонок
+ * @param {string[]} cells — содержимое ячеек
+ * @param {number[]} minWidths — минимальные ширины колонок (mm)
+ * @returns {number[]} colWidths
+ */
+function calcTableColumnWidths(doc, totalWidth, headers, cells, minWidths) {
+  var result = [];
+  var padding = 2;
+  for (var i = 0; i < headers.length; i++) {
+    var w = Math.max(
+      doc.getTextWidth(headers[i] || '') + padding,
+      doc.getTextWidth(cells[i] || '') + padding,
+      minWidths[i] || 10
+    );
+    result.push(w);
+  }
+  var sum = result.reduce(function (a, b) {
+    return a + b;
+  }, 0);
+  if (sum > totalWidth) {
+    var overflow = sum - totalWidth;
+    result[0] = Math.max(minWidths[0], result[0] - overflow);
+  } else if (sum < totalWidth) {
+    result[0] += totalWidth - sum;
+  }
+  return result;
+}
+
+/**
+ * Обрезает текст до заданной ширины (mm), добавляя «...» при необходимости.
+ */
+function truncateToWidth(doc, text, maxWidthMm) {
+  if (!text) return '';
+  if (doc.getTextWidth(text) <= maxWidthMm) return text;
+  var s = text;
+  while (s.length > 2 && doc.getTextWidth(s + '...') > maxWidthMm) {
+    s = s.substring(0, s.length - 1);
+  }
+  return s + '...';
 }
 
 function generateInvoiceNumber(bookingNumber) {
