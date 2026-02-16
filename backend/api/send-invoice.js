@@ -1,7 +1,10 @@
 /**
  * Vercel Serverless Function — отправка счёта на предоплату через Yandex SMTP.
  *
- * SMTP-credentials и API-ключ берутся из переменных окружения Vercel:
+ * После отправки письмо сохраняется в папку «Отправленные» через IMAP,
+ * чтобы оно было видно в веб-интерфейсе Яндекс Почты.
+ *
+ * SMTP/IMAP-credentials и API-ключ берутся из переменных окружения Vercel:
  *   SMTP_EMAIL    — логин Яндекс Почты (hotel@yandex.ru)
  *   SMTP_PASSWORD — пароль приложения Яндекс
  *   API_KEY       — секретный ключ для авторизации запросов от расширения
@@ -25,6 +28,8 @@
  */
 
 var nodemailer = require('nodemailer');
+var MailComposer = require('nodemailer/lib/mail-composer');
+var { ImapFlow } = require('imapflow');
 
 module.exports = async function handler(req, res) {
   // CORS preflight
@@ -152,9 +157,54 @@ module.exports = async function handler(req, res) {
 
     console.log('[SendInvoice] Email отправлен:', info.messageId, '→', body.to);
 
+    // ─── Сохранение в «Отправленные» через IMAP ────────────
+    // Best-effort: если IMAP-сохранение не удалось, письмо уже отправлено
+    var imapSaved = false;
+
+    try {
+      var mail = new MailComposer(mailOptions);
+      var rawMessage = await mail.compile().build();
+
+      var imapClient = new ImapFlow({
+        host: 'imap.yandex.ru',
+        port: 993,
+        secure: true,
+        auth: {
+          user: smtpEmail,
+          pass: smtpPassword
+        },
+        logger: false
+      });
+
+      await imapClient.connect();
+
+      // Определяем папку «Отправленные» по IMAP special-use атрибуту
+      var sentFolder = 'Sent';
+      try {
+        var folders = await imapClient.list();
+        for (var folder of folders) {
+          if (folder.specialUse === '\\Sent') {
+            sentFolder = folder.path;
+            break;
+          }
+        }
+      } catch (listErr) {
+        console.warn('[SendInvoice] Не удалось получить список папок IMAP, используем "Sent":', listErr.message);
+      }
+
+      await imapClient.append(sentFolder, rawMessage, ['\\Seen']);
+      await imapClient.logout();
+
+      imapSaved = true;
+      console.log('[SendInvoice] Письмо сохранено в папку "' + sentFolder + '" через IMAP');
+    } catch (imapError) {
+      console.error('[SendInvoice] Не удалось сохранить в "Отправленные" через IMAP:', imapError.message);
+    }
+
     return res.status(200).json({
       success: true,
-      messageId: info.messageId
+      messageId: info.messageId,
+      imapSaved: imapSaved
     });
 
   } catch (error) {
