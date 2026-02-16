@@ -8,16 +8,18 @@
  *     - «Отправить счёт» — генерирует PDF-счёт и отправляет на email гостя
  *     - «Скачать подтверждение» — генерирует PDF подтверждения и скачивает
  *     - «Отправить подтверждение» — генерирует PDF подтверждения и отправляет на email
- *  3. В модальном окне бронирования добавляет блок «Сумма предоплаты»
- *  4. Скрывает встроенный блок отправки подтверждения
- *  5. Удаляет пункт «Отправить подтверждение» из контекстного меню
+ *  3. В тултипе «Стоимость проживания» показывает сумму предоплаты (первые 3 суток)
+ *  4. Кеширует посуточные цены из тултипа для расчёта предоплаты в счёте
+ *  5. Показывает анимированную стрелку-подсказку на иконку «i» если цены не загружены
+ *  6. Скрывает встроенный блок отправки подтверждения
+ *  7. Удаляет пункт «Отправить подтверждение» из контекстного меню
  *
  * Зависимости (загружаются раньше через manifest.json content_scripts):
  *  - jspdf.umd.min.js         (глобальная jspdf)
  *  - qrcode.js                 (qrcode)
  *  - roboto-regular.js         (ROBOTO_FONT_BASE64)
  *  - hotel-details.js          (HOTEL_DETAILS)
- *  - data-parser.js            (parseBookingData, parseBookingModalData, isBookingModal, findBookingContainer, findButtonInsertionPoint, isBookingPage)
+ *  - data-parser.js            (parseBookingData, findBookingContainer, findButtonInsertionPoint, isBookingPage, parseDailyRatesFromElement, parseDailyRatesFromTooltip)
  *  - invoice-generator.js      (generateInvoicePDF)
  *  - confirmation-generator.js (generateConfirmationPDF)
  *  - email-sender.js           (sendInvoiceEmail, sendConfirmationEmail)
@@ -35,10 +37,16 @@
   var BTN_CONFIRM_DOWNLOAD_ID = 'kontur-confirm-download-btn';
   var BTN_CONFIRM_SEND_ID = 'kontur-confirm-send-btn';
 
-  var PREPAY_MODAL_BLOCK_ID = 'kontur-prepay-modal-block';
+  var TOOLTIP_PREPAY_ID = 'kontur-tooltip-prepay';
+  var ARROW_HINT_ID = 'kontur-arrow-hint';
 
   var OBSERVER_DEBOUNCE_MS = 500;
   var lastUrl = window.location.href;
+
+  // Кеш посуточных цен (из тултипа «Стоимость проживания»)
+  var cachedDailyRates = null;
+  var arrowHintTimer = null;
+  var tooltipRetryTimer = null;
 
   // ─── SVG-иконки ─────────────────────────────────────────────
 
@@ -149,6 +157,22 @@
    * Возвращает { bookingData, pdfResult } или null при ошибке.
    */
   function prepareInvoice(button, icon, label) {
+    // Пробуем получить посуточные цены из кеша или видимого тултипа
+    if (!cachedDailyRates || cachedDailyRates.length === 0) {
+      tryCaptureDailyRates();
+    }
+
+    if (!cachedDailyRates || cachedDailyRates.length === 0) {
+      setButtonState(button, 'error', '❌ Нет цен по дням');
+      showToast(
+        'Наведите курсор на иконку ⓘ рядом со стоимостью, чтобы загрузить цены по дням, затем нажмите кнопку снова.',
+        'error'
+      );
+      showArrowHint();
+      resetButtonAfterDelay(button, icon, label);
+      return null;
+    }
+
     var bookingData = parseBookingData();
 
     if (!bookingData) {
@@ -157,6 +181,18 @@
       resetButtonAfterDelay(button, icon, label);
       return null;
     }
+
+    // Переопределяем предоплату на основе кешированных посуточных цен
+    var prepay = 0;
+    var daysForPrepay = Math.min(3, cachedDailyRates.length);
+    for (var d = 0; d < daysForPrepay; d++) {
+      prepay += cachedDailyRates[d];
+    }
+    if (prepay > bookingData.totalPrice) {
+      prepay = bookingData.totalPrice;
+    }
+    bookingData.prepayAmount = prepay;
+    bookingData.dailyRates = cachedDailyRates;
 
     var missingFields = validateBookingData(bookingData);
     if (missingFields.length > 0) {
@@ -507,85 +543,182 @@
     return false;
   }
 
-  // ─── Блок «Сумма предоплаты» в модальном окне бронирования ──
+  // ─── Стрелка-подсказка на иконку «i» (цены по дням) ─────────
 
   /**
-   * Находит модальное окно бронирования (по заголовку или маркеру «Итого за проживание»).
+   * Находит иконку «i» (info) рядом со стоимостью проживания.
+   * При наведении на неё появляется тултип с посуточными ценами.
    */
-  function findBookingModalRoot() {
-    var headers = document.querySelectorAll('[data-tid="ModalHeader__root"]');
-    for (var i = 0; i < headers.length; i++) {
-      if ((headers[i].textContent || '').indexOf('Бронирование') !== -1) {
-        var modal = headers[i].closest('[data-focus-lock-disabled]') ||
-          headers[i].closest('.react-ui-uynq6y') ||
-          headers[i].closest('div');
-        if (modal) {
-          return modal;
+  function findPriceInfoIcon() {
+    var container = document.getElementById('MainPageTopBar');
+    if (!container) return null;
+
+    var svgs = container.querySelectorAll('svg[data-tid="Icon__root"]');
+    for (var i = 0; i < svgs.length; i++) {
+      var paths = svgs[i].querySelectorAll('path');
+      for (var j = 0; j < paths.length; j++) {
+        var d = paths[j].getAttribute('d') || '';
+        // Характерный path точки буквы «i» в круге
+        if (d.indexOf('M7.25 5.5') !== -1) {
+          var trigger = svgs[i].closest('[tabindex]');
+          return trigger || svgs[i].parentElement;
         }
-      }
-    }
-    var all = document.querySelectorAll('div');
-    for (var j = 0; j < all.length; j++) {
-      if ((all[j].textContent || '').indexOf('Итого за проживание в 1 номере') !== -1 &&
-          (all[j].textContent || '').indexOf('Бронирование') !== -1) {
-        return all[j].closest('[data-focus-lock-disabled]') || all[j];
       }
     }
     return null;
   }
 
   /**
-   * Добавляет или обновляет блок «Сумма предоплаты» в модальном окне бронирования.
+   * Показывает анимированную стрелку-подсказку рядом с иконкой «i».
+   * Стрелка исчезает через 8 секунд или при захвате посуточных цен.
    */
-  function tryInjectPrepayIntoBookingModal() {
-    var modalRoot = findBookingModalRoot();
-    if (!modalRoot || !isBookingModal(modalRoot)) {
-      return;
+  function showArrowHint() {
+    hideArrowHint();
+
+    var icon = findPriceInfoIcon();
+    if (!icon) return;
+
+    var rect = icon.getBoundingClientRect();
+
+    var hint = document.createElement('div');
+    hint.id = ARROW_HINT_ID;
+    hint.className = 'kontur-arrow-hint';
+    hint.innerHTML =
+      '<div class="kontur-arrow-hint__arrow">▲</div>' +
+      '<div class="kontur-arrow-hint__text">Наведите сюда</div>';
+
+    hint.style.left = Math.round(rect.left + rect.width / 2) + 'px';
+    hint.style.top = Math.round(rect.bottom + 6) + 'px';
+
+    document.body.appendChild(hint);
+
+    arrowHintTimer = setTimeout(hideArrowHint, 8000);
+  }
+
+  /** Скрывает стрелку-подсказку. */
+  function hideArrowHint() {
+    if (arrowHintTimer) {
+      clearTimeout(arrowHintTimer);
+      arrowHintTimer = null;
     }
+    var el = document.getElementById(ARROW_HINT_ID);
+    if (el) el.remove();
+  }
 
-    var data = parseBookingModalData(modalRoot);
+  // ─── Захват посуточных цен из тултипа ─────────────────────
 
-    // Для менее 4 ночей предоплата = полная стоимость → показывать блок бессмысленно.
-    // Показываем только при >= 4 ночей, когда предоплата отличается от «Итого».
-    if (!data || data.nightsCount < 4 || data.prepayAmount <= 0) {
-      var oldBlock = document.getElementById(PREPAY_MODAL_BLOCK_ID);
-      if (oldBlock) {
-        oldBlock.remove();
+  /**
+   * Захватывает посуточные цены из видимого тултипа «Стоимость проживания».
+   * Вызывается немедленно (без debounce) при любом изменении DOM,
+   * чтобы не пропустить короткоживущий тултип.
+   *
+   * При первом наведении React может рендерить содержимое тултипа асинхронно —
+   * контейнер уже в DOM, но цены внутри ещё не отрисованы.
+   * В этом случае планируется повторная попытка через 150–300 мс.
+   */
+  function tryCaptureDailyRates() {
+    var rates = parseDailyRatesFromTooltip();
+    if (rates.length > 0) {
+      cachedDailyRates = rates;
+      hideArrowHint();
+      if (tooltipRetryTimer) {
+        clearTimeout(tooltipRetryTimer);
+        tooltipRetryTimer = null;
       }
+      console.log('[KonturPrepay] Цены по дням захвачены:', rates);
       return;
     }
 
-    var existingBlock = document.getElementById(PREPAY_MODAL_BLOCK_ID);
-    if (existingBlock) {
-      existingBlock.textContent = 'Сумма предоплаты: ' + formatMoney(data.prepayAmount) + ' ₽';
-      return;
+    // Тултип есть, но данные ещё не загружены — повторить через 150 мс
+    // (React может рендерить содержимое тултипа асинхронно при первом открытии)
+    if (!tooltipRetryTimer && (!cachedDailyRates || cachedDailyRates.length === 0)) {
+      var tooltip = document.querySelector('[data-tid="Tooltip__content"]');
+      if (tooltip) {
+        tooltipRetryTimer = setTimeout(function () {
+          tooltipRetryTimer = null;
+          var retryRates = parseDailyRatesFromTooltip();
+          if (retryRates.length > 0) {
+            cachedDailyRates = retryRates;
+            hideArrowHint();
+            console.log('[KonturPrepay] Цены по дням захвачены (retry):', retryRates);
+            // Также инжектируем блок предоплаты в тултип (если ещё виден)
+            tryInjectPrepayIntoTooltip();
+          }
+        }, 150);
+      }
     }
+  }
 
-    var totalBlock = findElementByTextContains(modalRoot, 'Итого за проживание');
-    if (!totalBlock) {
-      return;
-    }
+  // ─── Отображение предоплаты в тултипе ───────────────────
 
-    var section = totalBlock.closest('div');
-    if (!section) {
-      return;
-    }
-    var parent = section.parentElement;
-    var gappedHorizontal = parent ? parent.querySelector('[data-tid="Gapped__horizontal"]') : null;
+  /**
+   * Добавляет строку «Предоплата» в тултип «Стоимость проживания».
+   * Показывает сумму первых 3 суток.
+   */
+  function tryInjectPrepayIntoTooltip() {
+    var tooltips = document.querySelectorAll('[data-tid="Tooltip__content"]');
+    for (var i = 0; i < tooltips.length; i++) {
+      var tooltip = tooltips[i];
+      var text = tooltip.textContent || '';
+      if (text.indexOf('Стоимость проживания') === -1) continue;
 
-    var block = document.createElement('div');
-    block.id = PREPAY_MODAL_BLOCK_ID;
-    block.className = 'kontur-prepay-modal-block';
-    block.textContent = 'Сумма предоплаты: ' + formatMoney(data.prepayAmount) + ' ₽';
+      // Уже добавлено
+      if (tooltip.querySelector('#' + TOOLTIP_PREPAY_ID)) continue;
 
-    if (gappedHorizontal && gappedHorizontal.parentElement) {
-      gappedHorizontal.parentElement.insertBefore(block, gappedHorizontal.nextSibling);
-    } else if (parent) {
-      parent.appendChild(block);
-    }
+      var rates = parseDailyRatesFromElement(tooltip);
+      if (rates.length === 0) continue;
 
-    if (block.parentElement) {
-      console.log('[KonturPrepay] Блок «Сумма предоплаты» добавлен в модальное окно бронирования');
+      // Считаем предоплату (первые 3 суток)
+      var prepay = 0;
+      var daysForPrepay = Math.min(3, rates.length);
+      for (var d = 0; d < daysForPrepay; d++) {
+        prepay += rates[d];
+      }
+
+      // Ищем блок «Итого за проживание» для вставки после него
+      var allSpans = tooltip.querySelectorAll('span');
+      var totalSpan = null;
+      for (var s = 0; s < allSpans.length; s++) {
+        if ((allSpans[s].textContent || '').indexOf('Итого за проживание') !== -1) {
+          totalSpan = allSpans[s];
+          break;
+        }
+      }
+
+      // Поднимаемся до контейнера секции «Итого»
+      var insertAfter = null;
+      if (totalSpan) {
+        insertAfter = totalSpan;
+        for (var up = 0; up < 5; up++) {
+          if (insertAfter.parentElement && insertAfter.parentElement !== tooltip) {
+            insertAfter = insertAfter.parentElement;
+          }
+        }
+      }
+
+      var prepayBlock = document.createElement('div');
+      prepayBlock.id = TOOLTIP_PREPAY_ID;
+      prepayBlock.className = 'kontur-tooltip-prepay';
+
+      var daysLabel = daysForPrepay < 3
+        ? daysForPrepay + ' ' + pluralize(daysForPrepay, 'сутки', 'суток', 'суток')
+        : '3 сут.';
+      prepayBlock.innerHTML =
+        '<span>Предоплата (первые ' + daysLabel + '): ' +
+        '<strong>' + formatMoney(prepay) + ' ₽</strong></span>';
+
+      if (insertAfter && insertAfter.parentElement) {
+        insertAfter.parentElement.insertBefore(prepayBlock, insertAfter.nextSibling);
+      } else {
+        var scrollInner = tooltip.querySelector('[data-tid="ScrollContainer__inner"]');
+        if (scrollInner) {
+          scrollInner.appendChild(prepayBlock);
+        } else {
+          tooltip.appendChild(prepayBlock);
+        }
+      }
+
+      console.log('[KonturPrepay] Блок предоплаты добавлен в тултип');
     }
   }
 
@@ -667,6 +800,11 @@
     var currentUrl = window.location.href;
     if (currentUrl !== lastUrl) {
       lastUrl = currentUrl;
+      cachedDailyRates = null; // Сбрасываем кеш при смене бронирования
+      if (tooltipRetryTimer) {
+        clearTimeout(tooltipRetryTimer);
+        tooltipRetryTimer = null;
+      }
       var oldWrapper = document.getElementById(WRAPPER_ID);
       if (oldWrapper) {
         oldWrapper.remove();
@@ -677,13 +815,17 @@
       }
     }
 
+    // Немедленно (без debounce) пытаемся захватить цены из тултипа
+    // и добавить блок предоплаты — тултип может исчезнуть быстро
+    tryCaptureDailyRates();
+    tryInjectPrepayIntoTooltip();
+
     if (debounceTimer) {
       clearTimeout(debounceTimer);
     }
     debounceTimer = setTimeout(function () {
       tryInjectButton();
       removeButtonIfOrphaned();
-      tryInjectPrepayIntoBookingModal();
 
       // Повторно проверяем скрытие встроенных элементов
       // (меню может быть создано динамически)

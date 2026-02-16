@@ -228,13 +228,55 @@
   background-color: #1874cf;
 }
 
-/* ---------- Блок «Сумма предоплаты» в модальном окне бронирования ---------- */
-.kontur-prepay-modal-block {
-  margin-top: 12px;
-  padding: 8px 0;
+/* ---------- Стрелка-подсказка на иконку «i» ---------- */
+.kontur-arrow-hint {
+  position: fixed;
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: kontur-arrow-bounce 0.8s ease-in-out infinite;
+}
+
+.kontur-arrow-hint__arrow {
+  font-size: 18px;
+  line-height: 1;
+  color: #ea4335;
+  text-shadow: 0 1px 4px rgba(234, 67, 53, 0.4);
+}
+
+.kontur-arrow-hint__text {
+  background: #ea4335;
+  color: #ffffff;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-family: "Lab Grotesque", "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  margin-top: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes kontur-arrow-bounce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-6px); }
+}
+
+/* ---------- Блок «Предоплата» в тултипе «Стоимость проживания» ---------- */
+.kontur-tooltip-prepay {
+  margin-top: 8px;
+  padding: 6px 0 2px;
+  border-top: 1px dashed rgba(24, 116, 207, 0.4);
   font-family: "Lab Grotesque", "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 20px;
-  font-weight: 500;
   color: #1874cf;
+}
+
+.kontur-tooltip-prepay strong {
+  font-weight: 700;
 }

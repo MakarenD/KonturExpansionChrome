@@ -9,7 +9,8 @@
  *  4. Структурные отношения элементов (соседние div-ы, родители)
  *
  * Расчёт:
- *  - Предоплата = (общая сумма / кол. ночей) * 3
+ *  - Предоплата = сумма первых 3 суток (из тултипа/модального окна с ценами по дням)
+ *  - Фоллбэк: (общая сумма / кол. ночей) × 3 (если посуточные цены недоступны)
  *  - Скидка: 4–5 ночей → 5%, 6+ ночей → 8%
  */
 
@@ -108,11 +109,21 @@ function parseBookingData() {
   // Стоимость за сутки
   var nightlyRate = nightsCount > 0 ? Math.round(totalPrice / nightsCount) : 0;
 
-  // Предоплата = (общая сумма / кол. ночей) * 3
-  // Если получилось больше стоимости номера — берём сумму номера
-  var prepayAmount = nightsCount > 0
-    ? Math.round((totalPrice / nightsCount) * 3)
-    : 0;
+  // Предоплата = сумма первых 3 суток (из тултипа, если доступен)
+  // Фоллбэк: (общая сумма / кол. ночей) × 3
+  // content.js переопределит prepayAmount при наличии кешированных посуточных цен
+  var dailyRates = parseDailyRatesFromTooltip();
+  var prepayAmount = 0;
+  if (dailyRates.length > 0) {
+    var daysForPrepay = Math.min(3, dailyRates.length);
+    for (var dp = 0; dp < daysForPrepay; dp++) {
+      prepayAmount += dailyRates[dp];
+    }
+  } else {
+    prepayAmount = nightsCount > 0
+      ? Math.round((totalPrice / nightsCount) * 3)
+      : 0;
+  }
   if (prepayAmount > totalPrice) {
     prepayAmount = totalPrice;
   }
@@ -142,6 +153,7 @@ function parseBookingData() {
     nightsCount: nightsCount,
     nightlyRate: nightlyRate,
     prepayAmount: prepayAmount,
+    dailyRates: dailyRates,
     discountPercent: discountPercent,
     discountAmount: discountAmount,
     fullPaymentWithDiscount: fullPaymentWithDiscount
@@ -773,10 +785,11 @@ function calculateDiscount(nightsCount) {
 
 /**
  * Парсит данные из модального окна создания/редактирования бронирования.
- * Предоплата = (общая сумма / кол. ночей) * 3.
+ * Предоплата = сумма первых 3 суток (из посуточных цен модального окна).
+ * Фоллбэк: (общая сумма / кол. ночей) × 3.
  *
  * @param {Element} modalRoot — корневой элемент модального окна (или document для поиска)
- * @returns {{ totalPrice: number, nightsCount: number, prepayAmount: number }|null}
+ * @returns {{ totalPrice: number, nightsCount: number, prepayAmount: number, dailyRates: number[] }|null}
  */
 function parseBookingModalData(modalRoot) {
   var root = modalRoot || document;
@@ -870,11 +883,21 @@ function parseBookingModalData(modalRoot) {
   }
 
   var nightlyRate = nightsCount > 0 ? Math.round(totalPrice / nightsCount) : 0;
-  // Предоплата = (общая сумма / кол. ночей) * 3
-  var prepayAmount = nightsCount > 0
-    ? Math.round((totalPrice / nightsCount) * 3)
-    : 0;
-  // Если предоплата больше стоимости — берём стоимость
+
+  // Предоплата = сумма первых 3 суток (из модального окна)
+  var dailyRates = parseDailyRatesFromElement(root);
+  var prepayAmount = 0;
+  if (dailyRates.length > 0) {
+    var daysForPrepay = Math.min(3, dailyRates.length);
+    for (var dp = 0; dp < daysForPrepay; dp++) {
+      prepayAmount += dailyRates[dp];
+    }
+  } else {
+    // Фоллбэк: (общая сумма / кол. ночей) × 3
+    prepayAmount = nightsCount > 0
+      ? Math.round((totalPrice / nightsCount) * 3)
+      : 0;
+  }
   if (prepayAmount > totalPrice) {
     prepayAmount = totalPrice;
   }
@@ -882,8 +905,95 @@ function parseBookingModalData(modalRoot) {
   return {
     totalPrice: totalPrice,
     nightsCount: nightsCount,
-    prepayAmount: prepayAmount
+    prepayAmount: prepayAmount,
+    dailyRates: dailyRates
   };
+}
+
+// ─── Парсинг посуточных цен (тултип / модальное окно) ────────
+
+/**
+ * Извлекает посуточные цены из DOM-элемента (тултипа или модального окна).
+ *
+ * Ищет строки с номером дня (1, 2, 3, ...) и ценой (title="15 900₽").
+ * Строки «Итого за проживание» пропускаются.
+ *
+ * @param {Element} root — корневой элемент для поиска
+ * @returns {number[]} — массив цен по дням (в порядке номеров дней)
+ */
+function parseDailyRatesFromElement(root) {
+  if (!root) return [];
+
+  var rates = [];
+  var spans = root.querySelectorAll('span');
+
+  for (var i = 0; i < spans.length; i++) {
+    var span = spans[i];
+    var text = (span.textContent || '').trim();
+
+    // Ищем span с номером дня (1, 2, 3, ...)
+    if (!/^\d{1,3}$/.test(text)) continue;
+    if (span.children.length > 0) continue;
+
+    var dayNum = parseInt(text, 10);
+    if (dayNum < 1 || dayNum > 365) continue;
+
+    // Поднимаемся по DOM, ищем строку содержащую и номер дня, и цену (title с ₽)
+    var row = span;
+    var priceFound = 0;
+
+    for (var up = 0; up < 5; up++) {
+      if (!row.parentElement || row.parentElement === root) break;
+      row = row.parentElement;
+
+      // Проверяем: не «Итого» ли это
+      var rowText = row.textContent || '';
+      if (rowText.indexOf('Итого') !== -1) break;
+
+      var priceEl = row.querySelector('[title*="₽"]');
+      if (priceEl) {
+        var title = priceEl.getAttribute('title') || '';
+        priceFound = parsePrice(title.replace('₽', ''));
+        break;
+      }
+    }
+
+    if (priceFound > 0) {
+      rates.push({ day: dayNum, price: priceFound });
+    }
+  }
+
+  // Сортируем по номеру дня
+  rates.sort(function (a, b) { return a.day - b.day; });
+
+  // Убираем дубликаты и возвращаем только цены
+  var result = [];
+  var seen = {};
+  for (var r = 0; r < rates.length; r++) {
+    if (!seen[rates[r].day]) {
+      result.push(rates[r].price);
+      seen[rates[r].day] = true;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Находит видимый тултип «Стоимость проживания» и извлекает из него посуточные цены.
+ *
+ * @returns {number[]} — массив цен по дням (пустой, если тултип не найден)
+ */
+function parseDailyRatesFromTooltip() {
+  var tooltips = document.querySelectorAll('[data-tid="Tooltip__content"]');
+  for (var i = 0; i < tooltips.length; i++) {
+    var tooltip = tooltips[i];
+    var text = tooltip.textContent || '';
+    if (text.indexOf('Стоимость проживания') !== -1 || text.indexOf('Ночь') !== -1) {
+      return parseDailyRatesFromElement(tooltip);
+    }
+  }
+  return [];
 }
 
 /**
