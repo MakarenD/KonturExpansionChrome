@@ -82,8 +82,8 @@ function parseBookingData() {
   // 7. Email гостя — из секции «Информация»
   var guestEmail = parseGuestEmail(container, pageText);
 
-  // 8. Телефон гостя
-  var guestPhone = parseGuestPhone(pageText);
+  // 8. Телефон гостя — ищем в секции «Информация», чтобы не спутать с номером бронирования
+  var guestPhone = parseGuestPhone(container, pageText);
 
   // 9. Оплаченная сумма и долг
   var paidAmount = parsePaidAmount(container, pageText);
@@ -409,11 +409,24 @@ function parseGuestEmail(container, text) {
 }
 
 /** Извлекает телефон гостя. */
-function parseGuestPhone(text) {
-  var phoneMatch = text.match(/\+?\d[\d\s()-]{9,}/);
-  if (phoneMatch) {
-    return phoneMatch[0].trim();
+function parseGuestPhone(container, text) {
+  // Ищем в секции «Информация» (рядом с ФИО и email), чтобы не спутать
+  // с цифрами номера бронирования (OTL-0000000024 и т.п.)
+  var infoSection = findSectionByLabel(container, 'Информация');
+  var searchText = infoSection ? (infoSection.textContent || '') : text;
+
+  // Сначала ищем российский формат: +7, 8, 7 в начале
+  var ruPhoneMatch = searchText.match(/(\+7|8|7)\s*[\(\s]*\d{3}[\)\s]*\d{3}[\s-]?\d{2}[\s-]?\d{2}/);
+  if (ruPhoneMatch) {
+    return ruPhoneMatch[0].replace(/\s+/g, '').trim();
   }
+
+  // Фоллбэк: любой номер в формате +цифры (международный)
+  var intlMatch = searchText.match(/\+[\d\s()-]{10,}/);
+  if (intlMatch) {
+    return intlMatch[0].replace(/\s+/g, ' ').trim();
+  }
+
   return null;
 }
 

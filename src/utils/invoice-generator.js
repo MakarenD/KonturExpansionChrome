@@ -45,22 +45,30 @@ function generateInvoicePDF(bookingData, hotelDetails) {
     surchargeAtHotel = 0;
   }
 
-  var y = 12;
+  var y = 20;
 
-  // ─── Шапка: реквизиты отеля ──────────────────────────────
+  // ─── Шапка: реквизиты отеля (как в ваучере) ───────────────
 
-  doc.setFontSize(8);
+  doc.setFontSize(12);
+  doc.setTextColor(0, 0, 0);
+  doc.text(hotelDetails.name, marginLeft, y);
+  y += 5;
+
+  doc.setFontSize(9);
   doc.setTextColor(100, 100, 100);
-
-  doc.text(hotelDetails.name + '    ИНН ' + hotelDetails.inn + '  КПП ' + hotelDetails.kpp, marginLeft, y);
+  doc.text('Адрес отеля: ' + hotelDetails.address, marginLeft, y);
   y += 4;
-  doc.text('Адрес: ' + hotelDetails.address + '    Тел.: ' + hotelDetails.phone + '    Email: ' + hotelDetails.email, marginLeft, y);
+  doc.text(
+    'Тел.: ' + hotelDetails.phone + '    Email: ' + hotelDetails.email,
+    marginLeft,
+    y
+  );
   y += 3;
 
   doc.setDrawColor(200, 200, 200);
   doc.setLineWidth(0.3);
   doc.line(marginLeft, y, pageWidth - marginRight, y);
-  y += 8;
+  y += 12;
 
   // ─── Заголовок счёта ─────────────────────────────────────
 
@@ -342,7 +350,7 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   var note =
     'Счёт действителен в течение 3 (трёх) банковских дней. ' +
     'Оплата данного счёта означает согласие с условиями бронирования. ' +
-    'Для оплаты отсканируйте QR-код камерой телефона или в приложении банка.';
+    'Для оплаты отсканируйте QR-код в приложении банка.';
   var splitNote = doc.splitTextToSize(note, contentWidth);
   doc.text(splitNote, marginLeft, y);
   y += splitNote.length * 3 + 6;
@@ -366,14 +374,14 @@ function generateInvoicePDF(bookingData, hotelDetails) {
 
   // Печать и подпись по центру линии подписи (___________)
   if (typeof STAMP_IMAGE_BASE64 !== 'undefined' && STAMP_IMAGE_BASE64) {
-    var stampW = 42;
-    var stampH = 42 * (1600 / 747);
+    var stampW = 56;
+    var stampH = 56 * (1600 / 747);
     doc.saveGraphicsState();
     doc.setGState(new doc.GState({ opacity: 0.75 }));
     doc.addImage(
       'data:image/png;base64,' + STAMP_IMAGE_BASE64,
       'PNG',
-      signLineX + 10, signatureLineY - stampH * 0.55,
+      signLineX + 10, signatureLineY - stampH * 0.50,
       stampW, stampH
     );
     doc.restoreGraphicsState();
