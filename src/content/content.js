@@ -8,15 +8,16 @@
  *     - «Отправить счёт» — генерирует PDF-счёт и отправляет на email гостя
  *     - «Скачать подтверждение» — генерирует PDF подтверждения и скачивает
  *     - «Отправить подтверждение» — генерирует PDF подтверждения и отправляет на email
- *  3. Скрывает встроенный блок отправки подтверждения
- *  4. Удаляет пункт «Отправить подтверждение» из контекстного меню
+ *  3. В модальном окне бронирования добавляет блок «Сумма предоплаты»
+ *  4. Скрывает встроенный блок отправки подтверждения
+ *  5. Удаляет пункт «Отправить подтверждение» из контекстного меню
  *
  * Зависимости (загружаются раньше через manifest.json content_scripts):
  *  - jspdf.umd.min.js         (глобальная jspdf)
  *  - qrcode.js                 (qrcode)
  *  - roboto-regular.js         (ROBOTO_FONT_BASE64)
  *  - hotel-details.js          (HOTEL_DETAILS)
- *  - data-parser.js            (parseBookingData, findBookingContainer, findButtonInsertionPoint, isBookingPage)
+ *  - data-parser.js            (parseBookingData, parseBookingModalData, isBookingModal, findBookingContainer, findButtonInsertionPoint, isBookingPage)
  *  - invoice-generator.js      (generateInvoicePDF)
  *  - confirmation-generator.js (generateConfirmationPDF)
  *  - email-sender.js           (sendInvoiceEmail, sendConfirmationEmail)
@@ -33,6 +34,8 @@
   var CONFIRM_WRAPPER_ID = 'kontur-confirm-wrapper';
   var BTN_CONFIRM_DOWNLOAD_ID = 'kontur-confirm-download-btn';
   var BTN_CONFIRM_SEND_ID = 'kontur-confirm-send-btn';
+
+  var PREPAY_MODAL_BLOCK_ID = 'kontur-prepay-modal-block';
 
   var OBSERVER_DEBOUNCE_MS = 500;
   var lastUrl = window.location.href;
@@ -504,6 +507,88 @@
     return false;
   }
 
+  // ─── Блок «Сумма предоплаты» в модальном окне бронирования ──
+
+  /**
+   * Находит модальное окно бронирования (по заголовку или маркеру «Итого за проживание»).
+   */
+  function findBookingModalRoot() {
+    var headers = document.querySelectorAll('[data-tid="ModalHeader__root"]');
+    for (var i = 0; i < headers.length; i++) {
+      if ((headers[i].textContent || '').indexOf('Бронирование') !== -1) {
+        var modal = headers[i].closest('[data-focus-lock-disabled]') ||
+          headers[i].closest('.react-ui-uynq6y') ||
+          headers[i].closest('div');
+        if (modal) {
+          return modal;
+        }
+      }
+    }
+    var all = document.querySelectorAll('div');
+    for (var j = 0; j < all.length; j++) {
+      if ((all[j].textContent || '').indexOf('Итого за проживание в 1 номере') !== -1 &&
+          (all[j].textContent || '').indexOf('Бронирование') !== -1) {
+        return all[j].closest('[data-focus-lock-disabled]') || all[j];
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Добавляет или обновляет блок «Сумма предоплаты» в модальном окне бронирования.
+   */
+  function tryInjectPrepayIntoBookingModal() {
+    var modalRoot = findBookingModalRoot();
+    if (!modalRoot || !isBookingModal(modalRoot)) {
+      return;
+    }
+
+    var data = parseBookingModalData(modalRoot);
+
+    // Для менее 4 ночей предоплата = полная стоимость → показывать блок бессмысленно.
+    // Показываем только при >= 4 ночей, когда предоплата отличается от «Итого».
+    if (!data || data.nightsCount < 4 || data.prepayAmount <= 0) {
+      var oldBlock = document.getElementById(PREPAY_MODAL_BLOCK_ID);
+      if (oldBlock) {
+        oldBlock.remove();
+      }
+      return;
+    }
+
+    var existingBlock = document.getElementById(PREPAY_MODAL_BLOCK_ID);
+    if (existingBlock) {
+      existingBlock.textContent = 'Сумма предоплаты: ' + formatMoney(data.prepayAmount) + ' ₽';
+      return;
+    }
+
+    var totalBlock = findElementByTextContains(modalRoot, 'Итого за проживание');
+    if (!totalBlock) {
+      return;
+    }
+
+    var section = totalBlock.closest('div');
+    if (!section) {
+      return;
+    }
+    var parent = section.parentElement;
+    var gappedHorizontal = parent ? parent.querySelector('[data-tid="Gapped__horizontal"]') : null;
+
+    var block = document.createElement('div');
+    block.id = PREPAY_MODAL_BLOCK_ID;
+    block.className = 'kontur-prepay-modal-block';
+    block.textContent = 'Сумма предоплаты: ' + formatMoney(data.prepayAmount) + ' ₽';
+
+    if (gappedHorizontal && gappedHorizontal.parentElement) {
+      gappedHorizontal.parentElement.insertBefore(block, gappedHorizontal.nextSibling);
+    } else if (parent) {
+      parent.appendChild(block);
+    }
+
+    if (block.parentElement) {
+      console.log('[KonturPrepay] Блок «Сумма предоплаты» добавлен в модальное окно бронирования');
+    }
+  }
+
   // ─── Инъекция кнопок ──────────────────────────────────────
 
   function tryInjectButton() {
@@ -598,6 +683,7 @@
     debounceTimer = setTimeout(function () {
       tryInjectButton();
       removeButtonIfOrphaned();
+      tryInjectPrepayIntoBookingModal();
 
       // Повторно проверяем скрытие встроенных элементов
       // (меню может быть создано динамически)
@@ -612,7 +698,8 @@
     var observer = new MutationObserver(onDomChange);
     observer.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
+      characterData: true
     });
 
     console.log('[KonturPrepay] MutationObserver запущен на', window.location.href);

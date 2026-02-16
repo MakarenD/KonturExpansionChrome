@@ -9,7 +9,7 @@
  *  4. Структурные отношения элементов (соседние div-ы, родители)
  *
  * Расчёт:
- *  - Предоплата = стоимость первых 3 суток
+ *  - Предоплата = (общая сумма / кол. ночей) * 3
  *  - Скидка: 4–5 ночей → 5%, 6+ ночей → 8%
  */
 
@@ -108,9 +108,14 @@ function parseBookingData() {
   // Стоимость за сутки
   var nightlyRate = nightsCount > 0 ? Math.round(totalPrice / nightsCount) : 0;
 
-  // Предоплата = первые 3 суток
-  var prepayNights = Math.min(3, nightsCount);
-  var prepayAmount = nightlyRate * prepayNights;
+  // Предоплата = (общая сумма / кол. ночей) * 3
+  // Если получилось больше стоимости номера — берём сумму номера
+  var prepayAmount = nightsCount > 0
+    ? Math.round((totalPrice / nightsCount) * 3)
+    : 0;
+  if (prepayAmount > totalPrice) {
+    prepayAmount = totalPrice;
+  }
 
   // Скидка
   var discountPercent = calculateDiscount(nightsCount);
@@ -762,4 +767,164 @@ function calculateDiscount(nightsCount) {
     return 5;
   }
   return 0;
+}
+
+// ─── Парсинг модального окна бронирования ──────────────────────
+
+/**
+ * Парсит данные из модального окна создания/редактирования бронирования.
+ * Предоплата = (общая сумма / кол. ночей) * 3.
+ *
+ * @param {Element} modalRoot — корневой элемент модального окна (или document для поиска)
+ * @returns {{ totalPrice: number, nightsCount: number, prepayAmount: number }|null}
+ */
+function parseBookingModalData(modalRoot) {
+  var root = modalRoot || document;
+  var text = (root.textContent || '');
+
+  // 1. Сумма итого — читаем из инпута «Стоимость» (CurrencyInput рядом с label "Стоимость")
+  var totalPrice = 0;
+  var costLabel = findElementByText(root, 'Стоимость');
+  if (costLabel) {
+    var costContainer = costLabel.closest('div');
+    if (costContainer && costContainer.parentElement) {
+      var costInputs = costContainer.parentElement.querySelectorAll('input[inputmode="decimal"], input[type="text"]');
+      for (var ci = 0; ci < costInputs.length; ci++) {
+        var costVal = parsePrice(costInputs[ci].value || '');
+        if (costVal >= 1000) {
+          totalPrice = costVal;
+          break;
+        }
+      }
+    }
+  }
+
+  // Фоллбэк: ищем "ЧИСЛО ₽" в блоке "Итого за проживание"
+  // ВАЖНО: исключаем наш собственный блок #kontur-prepay-modal-block,
+  // чтобы его текст не влиял на парсинг (иначе замкнутый цикл)
+  if (totalPrice <= 0) {
+    var totalBlock = findElementByTextContains(root, 'Итого за проживание');
+    if (totalBlock) {
+      var section = totalBlock.closest('div[data-tid="Gapped__vertical"]') ||
+        totalBlock.closest('div[data-tid="Gapped__horizontal"]') ||
+        totalBlock.closest('div');
+      var prepayBlock = root.querySelector('#kontur-prepay-modal-block');
+      while (section && section !== root) {
+        var blockText = section.textContent || '';
+        // Вырезаем текст нашего блока предоплаты, чтобы он не засорял парсинг
+        if (prepayBlock && section.contains(prepayBlock)) {
+          blockText = blockText.replace(prepayBlock.textContent || '', '');
+        }
+        if (blockText.indexOf('₽') !== -1) {
+          var allPrices = blockText.match(/([\d\s\u00a0]+)\s*₽/g);
+          if (allPrices) {
+            for (var pi = 0; pi < allPrices.length; pi++) {
+              var p = parsePrice(allPrices[pi]);
+              if (p >= 1000 && p > totalPrice) {
+                totalPrice = p;
+              }
+            }
+            if (totalPrice > 0) break;
+          }
+        }
+        section = section.parentElement;
+      }
+    }
+  }
+
+  // 2. Количество ночей — из input рядом с "Ночей" или из дат
+  var nightsCount = 0;
+  var nightsLabel = findElementByText(root, 'Ночей');
+  if (nightsLabel) {
+    var nightsParent = nightsLabel.closest('div');
+    var container = nightsParent ? nightsParent.parentElement : null;
+    if (container) {
+      var inputs = container.querySelectorAll('input[type="text"], input[inputmode="decimal"]');
+      for (var j = 0; j < inputs.length; j++) {
+        var val = parseInt((inputs[j].value || '').trim(), 10);
+        if (!isNaN(val) && val >= 1 && val <= 365) {
+          nightsCount = val;
+          break;
+        }
+      }
+    }
+  }
+
+  // 3. Если ночей не нашли — считаем по датам
+  if (nightsCount <= 0) {
+    var hiddenInputs = root.querySelectorAll('input[type="hidden"][data-tid="InputLikeText__nativeInput"]');
+    var dateValues = [];
+    for (var k = 0; k < hiddenInputs.length; k++) {
+      var v = (hiddenInputs[k].value || '').trim();
+      if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(v)) {
+        dateValues.push(v);
+      }
+    }
+    if (dateValues.length >= 2) {
+      nightsCount = calculateNights(dateValues[0], dateValues[1]);
+    }
+  }
+
+  if (totalPrice <= 0 || nightsCount <= 0) {
+    return null;
+  }
+
+  var nightlyRate = nightsCount > 0 ? Math.round(totalPrice / nightsCount) : 0;
+  // Предоплата = (общая сумма / кол. ночей) * 3
+  var prepayAmount = nightsCount > 0
+    ? Math.round((totalPrice / nightsCount) * 3)
+    : 0;
+  // Если предоплата больше стоимости — берём стоимость
+  if (prepayAmount > totalPrice) {
+    prepayAmount = totalPrice;
+  }
+
+  return {
+    totalPrice: totalPrice,
+    nightsCount: nightsCount,
+    prepayAmount: prepayAmount
+  };
+}
+
+/**
+ * Находит элемент, содержащий точный текст (или дочерний с этим текстом).
+ */
+function findElementByText(root, text) {
+  var all = root.querySelectorAll('span, div');
+  for (var i = 0; i < all.length; i++) {
+    var direct = getDirectTextContent(all[i]).trim();
+    if (direct === text) {
+      return all[i];
+    }
+    if ((all[i].textContent || '').trim() === text && all[i].children.length === 0) {
+      return all[i];
+    }
+  }
+  return null;
+}
+
+/**
+ * Находит элемент, textContent которого содержит указанный подстрока.
+ */
+function findElementByTextContains(root, substring) {
+  var all = root.querySelectorAll('span, div');
+  for (var i = 0; i < all.length; i++) {
+    var direct = getDirectTextContent(all[i]).trim();
+    if (direct.indexOf(substring) !== -1) {
+      return all[i];
+    }
+  }
+  return null;
+}
+
+/**
+ * Проверяет, является ли элемент модальным окном бронирования.
+ */
+function isBookingModal(element) {
+  if (!element) return false;
+  var header = element.querySelector('[data-tid="ModalHeader__root"]');
+  if (header && (header.textContent || '').indexOf('Бронирование') !== -1) {
+    return true;
+  }
+  return !!findElementByTextContains(element, 'Итого за проживание');
 }

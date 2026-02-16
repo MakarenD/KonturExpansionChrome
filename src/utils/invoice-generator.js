@@ -156,14 +156,15 @@ function generateInvoicePDF(bookingData, hotelDetails) {
 
   // ─── Блок предоплаты ──────────────────────────────────────
 
-  var prepayNights = Math.min(3, bookingData.nightsCount);
+  var prepayDesc = bookingData.nightsCount >= 3
+    ? '3 суток проживания (' + '3 × ' + formatMoney(bookingData.nightlyRate) + ' руб./сут.)'
+    : 'полная сумма (менее 3 ночей)';
 
   y += 2;
   doc.setFontSize(9);
   doc.setTextColor(80, 80, 80);
   doc.text(
-    'Предоплата: первые ' + prepayNights + ' суток (' +
-    prepayNights + ' x ' + formatMoney(bookingData.nightlyRate) + ' руб./сут.)',
+    'Предоплата: ' + prepayDesc,
     marginLeft,
     y
   );

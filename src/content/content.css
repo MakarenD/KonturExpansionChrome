@@ -227,3 +227,14 @@
 .kontur-prepay-toast--info {
   background-color: #1874cf;
 }
+
+/* ---------- Блок «Сумма предоплаты» в модальном окне бронирования ---------- */
+.kontur-prepay-modal-block {
+  margin-top: 12px;
+  padding: 8px 0;
+  font-family: "Lab Grotesque", "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: #1874cf;
+}
