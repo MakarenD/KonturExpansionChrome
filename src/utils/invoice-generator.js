@@ -55,7 +55,7 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   y += 5;
   doc.text('ИНН ' + hotelDetails.inn + '  КПП ' + hotelDetails.kpp, marginLeft, y);
   y += 5;
-  doc.text(hotelDetails.address, marginLeft, y);
+  doc.text('Адрес отеля: ' + hotelDetails.address, marginLeft, y);
   y += 5;
   doc.text(
     'Тел.: ' + hotelDetails.phone + '    Email: ' + hotelDetails.email,
@@ -292,11 +292,17 @@ function generateInvoicePDF(bookingData, hotelDetails) {
       y + qrSize + 4,
       { align: 'center' }
     );
-    doc.setFontSize(11);
     doc.text(
-      'со скидкой ' + discountPercent + '% (' + formatMoney(fullPayment) + ' руб.)',
+      'со скидкой ' + discountPercent + '%',
       qr2CenterX,
       y + qrSize + 9,
+      { align: 'center' }
+    );
+    doc.setFontSize(10);
+    doc.text(
+      '(' + formatMoney(fullPayment) + ' руб. вместо ' + formatMoney(bookingData.totalPrice) + ' руб.)',
+      qr2CenterX,
+      y + qrSize + 14,
       { align: 'center' }
     );
   } else {
@@ -310,7 +316,7 @@ function generateInvoicePDF(bookingData, hotelDetails) {
     );
   }
 
-  y += qrSize + 16;
+  y += discountPercent > 0 ? qrSize + 21 : qrSize + 16;
 
   // ─── Назначение платежа ──────────────────────────────────
 
