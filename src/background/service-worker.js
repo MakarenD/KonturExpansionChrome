@@ -58,14 +58,15 @@ async function handleSendInvoice(data) {
     throw new Error('Не указан API-ключ. Откройте настройки расширения.');
   }
 
-  // Формируем тело письма
-  var emailSubject = 'Счёт на предоплату — бронирование №' + data.bookingNumber;
-  var emailBody =
-    'Добрый день, ' + data.guestName + '!\n\n' +
+  // Формируем тему и тело письма (используем переданные или значения по умолчанию)
+  var emailSubject = data.emailSubject ||
+    ('Счёт на предоплату — бронирование №' + data.bookingNumber);
+  var emailBody = data.emailBody ||
+    ('Добрый день, ' + data.guestName + '!\n\n' +
     'Направляем вам счёт на предоплату по бронированию №' + data.bookingNumber + '.\n' +
     'Счёт находится в приложении к данному письму.\n\n' +
     'С уважением,\n' +
-    'Служба бронирования';
+    'Служба бронирования');
 
   // Отправляем запрос на backend (без SMTP-данных — они на сервере)
   var response = await fetch(settings.backendUrl + '/api/send-invoice', {

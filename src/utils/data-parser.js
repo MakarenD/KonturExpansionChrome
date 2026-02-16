@@ -85,6 +85,16 @@ function parseBookingData() {
   // 8. Телефон гостя
   var guestPhone = parseGuestPhone(pageText);
 
+  // 9. Оплаченная сумма и долг
+  var paidAmount = parsePaidAmount(container, pageText);
+  var debtAmount = parseDebtAmount(container, pageText);
+
+  // 10. Количество гостей
+  var guestCount = parseGuestCount(container);
+
+  // 11. Время заезда и выезда
+  var checkTimes = parseCheckTimes(pageText);
+
   // Рассчитываем ночи
   var nightsCount = 0;
   if (dates.checkIn && dates.checkOut) {
@@ -116,8 +126,13 @@ function parseBookingData() {
     guestPhone: guestPhone || '',
     checkIn: dates.checkIn || '',
     checkOut: dates.checkOut || '',
+    checkInTime: checkTimes.checkInTime || '',
+    checkOutTime: checkTimes.checkOutTime || '',
     roomType: roomDesc,
     totalPrice: totalPrice,
+    paidAmount: paidAmount,
+    debtAmount: debtAmount,
+    guestCount: guestCount,
     bookingNumber: bookingNumber || '',
     nightsCount: nightsCount,
     nightlyRate: nightlyRate,
@@ -140,10 +155,17 @@ function isBookingPage() {
 
 // ─── Парсеры отдельных полей ──────────────────────────────────
 
-/** Извлекает номер бронирования (формат OTL-XXXXXXX). */
+/** Извлекает номер бронирования (форматы OTL-XXXXXXX, IMP-XXXXX и т.д.). */
 function parseBookingNumber(text) {
-  var match = text.match(/OTL-\d+/);
-  return match ? match[0] : null;
+  // Формат OTL-0000000015
+  var otlMatch = text.match(/OTL-\d+/);
+  if (otlMatch) return otlMatch[0];
+
+  // Формат IMP-BLBLA120226 и другие: БУКВЫ-БУКВО-ЦИФРОВОЙ перед двоеточием
+  var genericMatch = text.match(/([A-Z]{2,}-[A-Za-z0-9]{3,})(?=\s*:)/);
+  if (genericMatch) return genericMatch[1];
+
+  return null;
 }
 
 /**
@@ -414,6 +436,82 @@ function parseNightsFromText(text) {
   return 0;
 }
 
+// ─── Парсеры оплаты и дополнительных данных ───────────────────
+
+/** Извлекает оплаченную сумму из секции «Оплата». Паттерн: "25 000 ₽ оплачено". */
+function parsePaidAmount(container, text) {
+  var paymentSection = findSectionByLabel(container, 'Оплата');
+
+  // Сначала ищем в секции «Оплата»
+  if (paymentSection) {
+    var sectionText = paymentSection.textContent || '';
+    var match = sectionText.match(/([\d\s\u00a0]+)\s*₽[^а-яА-ЯёЁ]*оплачено/);
+    if (match) {
+      return parsePrice(match[1]);
+    }
+  }
+
+  // Фоллбэк: ищем во всём тексте страницы
+  var fallback = text.match(/([\d\s\u00a0]+)\s*₽[^а-яА-ЯёЁ]*оплачено/);
+  if (fallback) {
+    return parsePrice(fallback[1]);
+  }
+  return 0;
+}
+
+/** Извлекает сумму долга из секции «Оплата». Паттерн: "22 700 ₽ долг". */
+function parseDebtAmount(container, text) {
+  var paymentSection = findSectionByLabel(container, 'Оплата');
+
+  // Сначала ищем в секции «Оплата»
+  if (paymentSection) {
+    var sectionText = paymentSection.textContent || '';
+    var match = sectionText.match(/([\d\s\u00a0]+)\s*₽[^а-яА-ЯёЁ]*долг/);
+    if (match) {
+      return parsePrice(match[1]);
+    }
+  }
+
+  // Фоллбэк: ищем во всём тексте страницы
+  var fallback = text.match(/([\d\s\u00a0]+)\s*₽[^а-яА-ЯёЁ]*долг/);
+  if (fallback) {
+    return parsePrice(fallback[1]);
+  }
+  return 0;
+}
+
+/** Извлекает количество гостей из секции «Гости». */
+function parseGuestCount(container) {
+  var guestsSection = findSectionByLabel(container, 'Гости');
+  if (guestsSection) {
+    var text = guestsSection.textContent || '';
+    // Число сразу после "Гости" (может быть без пробела)
+    var match = text.match(/Гости\s*(\d+)/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    // Фоллбэк: считаем записи "Гость N"
+    var entries = text.match(/Гость\s+\d+/g);
+    if (entries) {
+      return entries.length;
+    }
+  }
+  return 0;
+}
+
+/** Извлекает время заезда и выезда (HH:MM). */
+function parseCheckTimes(text) {
+  // Ищем два последовательных времени в формате HH:MM (двузначный час)
+  var match = text.match(/(\d{2}:\d{2})\s*(\d{2}:\d{2})/);
+  if (match) {
+    return {
+      checkInTime: match[1],
+      checkOutTime: match[2]
+    };
+  }
+  return { checkInTime: null, checkOutTime: null };
+}
+
 // ─── Поиск секций по тексту заголовка ─────────────────────────
 
 /**
@@ -438,7 +536,7 @@ function findSectionByLabel(container, label) {
       // Нашли заголовок — возвращаем его родительский контейнер
       // Поднимаемся на 3-5 уровней вверх, чтобы захватить всю секцию
       var section = el;
-      for (var up = 0; up < 5; up++) {
+      for (var up = 0; up < 8; up++) {
         if (section.parentElement) {
           section = section.parentElement;
         }

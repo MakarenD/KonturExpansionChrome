@@ -21,6 +21,64 @@
  * @param {Function} onSuccess — callback при успехе
  * @param {Function} onError — callback при ошибке (принимает строку с ошибкой)
  */
+/**
+ * Отправляет подтверждение бронирования на email гостя через service worker и backend.
+ *
+ * @param {Object} emailData
+ * @param {string} emailData.to — email получателя
+ * @param {string} emailData.guestName — имя гостя
+ * @param {string} emailData.bookingNumber — номер бронирования
+ * @param {string} emailData.pdfBase64 — PDF в формате base64
+ * @param {string} emailData.pdfFilename — имя файла PDF
+ * @param {Function} onSuccess — callback при успехе
+ * @param {Function} onError — callback при ошибке
+ */
+function sendConfirmationEmail(emailData, onSuccess, onError) {
+  if (!emailData.to || emailData.to.indexOf('@') === -1) {
+    onError('Email гостя не указан или некорректен');
+    return;
+  }
+
+  var subject = 'Подтверждение бронирования №' + emailData.bookingNumber;
+  var body =
+    'Добрый день, ' + emailData.guestName + '!\n\n' +
+    'Направляем вам подтверждение бронирования №' + emailData.bookingNumber + '.\n' +
+    'Подтверждение находится в приложении к данному письму.\n\n' +
+    'С уважением,\n' +
+    'Служба бронирования';
+
+  chrome.runtime.sendMessage(
+    {
+      action: 'SEND_INVOICE_EMAIL',
+      data: {
+        to: emailData.to,
+        guestName: emailData.guestName,
+        bookingNumber: emailData.bookingNumber,
+        pdfBase64: emailData.pdfBase64,
+        pdfFilename: emailData.pdfFilename,
+        emailSubject: subject,
+        emailBody: body
+      }
+    },
+    function (response) {
+      if (chrome.runtime.lastError) {
+        console.error('[KonturPrepay] Ошибка связи с service worker:', chrome.runtime.lastError);
+        onError('Ошибка связи с расширением: ' + chrome.runtime.lastError.message);
+        return;
+      }
+
+      if (response && response.success) {
+        console.log('[KonturPrepay] Подтверждение успешно отправлено:', response.data);
+        onSuccess();
+      } else {
+        var errorMsg = (response && response.error) || 'Неизвестная ошибка при отправке';
+        console.error('[KonturPrepay] Ошибка отправки подтверждения:', errorMsg);
+        onError(errorMsg);
+      }
+    }
+  );
+}
+
 function sendInvoiceEmail(emailData, onSuccess, onError) {
   // Проверяем наличие email получателя
   if (!emailData.to || emailData.to.indexOf('@') === -1) {

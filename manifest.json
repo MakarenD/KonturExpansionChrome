@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Контур Отель — Счёт на предоплату",
-  "version": "1.0.0",
-  "description": "Формирование и отправка счетов на предоплату из бронирований Контур Отель",
+  "name": "Контур Отель — Счёт и подтверждение",
+  "version": "1.1.0",
+  "description": "Формирование и отправка счетов на предоплату и подтверждений бронирования из Контур Отель",
 
   "permissions": [
     "storage",
@@ -27,6 +27,7 @@
         "src/config/hotel-details.js",
         "src/utils/data-parser.js",
         "src/utils/invoice-generator.js",
+        "src/utils/confirmation-generator.js",
         "src/utils/email-sender.js",
         "src/content/content.js"
       ],
