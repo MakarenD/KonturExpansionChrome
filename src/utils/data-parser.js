@@ -519,8 +519,9 @@ function parseDebtAmount(container, text) {
  * Контур Отель отображает гостей так:
  *   «Гости  2[adult-icon]  1[child-icon] 7 лет»
  * textContent склеивается в «Гости217 лет», поэтому парсим по DOM-структуре:
- *   1. Считаем записи «Гость N» (каждый гость — отдельная карточка)
- *   2. Считаем взрослых и детей по иконкам (SVG путь для ребёнка содержит характерный фрагмент)
+ *   1. (приоритет) Извлекаем числа из сводки рядом с заголовком «Гости»:
+ *      div > span(число) + span(svg-иконка взрослого / ребёнка)
+ *   2. (фоллбэк) Считаем карточки «Гость N» + именные карточки
  *   3. Извлекаем возрасты детей из элементов data-tid="Age_N"
  *
  * @returns {{ adults: number, children: number, childrenAges: number[], total: number, text: string }}
@@ -531,14 +532,7 @@ function parseGuestCount(container) {
   var guestsSection = findSectionByLabel(container, 'Гости');
   if (!guestsSection) return result;
 
-  // Способ 1: считаем карточки «Гость N»
-  var sectionText = guestsSection.textContent || '';
-  var guestEntries = sectionText.match(/Гость\s+\d+/g);
-  if (guestEntries) {
-    result.total = guestEntries.length;
-  }
-
-  // Способ 2: извлекаем возрасты детей из data-tid="Age_N"
+  // Извлекаем возрасты детей из data-tid="Age_N"
   var ageElements = guestsSection.querySelectorAll('[data-tid^="Age_"]');
   for (var i = 0; i < ageElements.length; i++) {
     var ageText = (ageElements[i].textContent || '').trim();
@@ -547,38 +541,67 @@ function parseGuestCount(container) {
       result.childrenAges.push(age);
     }
   }
-  result.children = result.childrenAges.length;
 
-  // Взрослые = общее количество минус дети
-  result.adults = Math.max(0, result.total - result.children);
-
-  // Если «Гость N» не нашлось, пробуем взять итоговые цифры
-  // из блока-сводки рядом с заголовком «Гости»
-  if (result.total === 0) {
-    // Ищем div с иконками (сводка «2 [adult] 1 [child]»)
-    var summaryDivs = guestsSection.querySelectorAll('div');
-    for (var s = 0; s < summaryDivs.length; s++) {
-      var div = summaryDivs[s];
-      if (div.children.length === 2 &&
-          div.children[0].tagName === 'SPAN' &&
-          div.children[1].tagName &&
-          div.children[1].querySelector &&
-          div.children[1].querySelector('svg')) {
-        var numText = (div.children[0].textContent || '').trim();
-        var num = parseInt(numText, 10);
-        if (!isNaN(num) && num > 0 && num < 100) {
-          // Определяем тип по SVG-иконке: ребёнок имеет характерный path
-          var svgHtml = div.children[1].innerHTML || '';
-          if (svgHtml.indexOf('1.325 3.24') !== -1 ||
-              svgHtml.indexOf('M10 .5a3.563') !== -1) {
-            result.children = num;
-          } else {
-            result.adults = num;
-          }
+  // Способ 1 (приоритетный): извлекаем из сводки «2 [adult-icon] 1 [child-icon]»
+  // Ищем div-ы: span(число) + span(svg-иконка)
+  var summaryDivs = guestsSection.querySelectorAll('div');
+  for (var s = 0; s < summaryDivs.length; s++) {
+    var div = summaryDivs[s];
+    if (div.children.length === 2 &&
+        div.children[0].tagName === 'SPAN' &&
+        div.children[1].tagName === 'SPAN' &&
+        div.children[1].querySelector &&
+        div.children[1].querySelector('svg')) {
+      var numText = (div.children[0].textContent || '').trim();
+      var num = parseInt(numText, 10);
+      if (!isNaN(num) && num > 0 && num < 100) {
+        // Определяем тип по SVG-иконке: ребёнок имеет характерные path-фрагменты
+        var svgHtml = div.children[1].innerHTML || '';
+        // Иконка ребёнка 16×16: "1.854 3.646" (фигура с руками), "M8 1.25a2.75" (маленькая голова)
+        // Иконка ребёнка 20×20: "1.325 3.24", "M10 .5a3.563" (спортивная фигура)
+        if (svgHtml.indexOf('1.854 3.646') !== -1 ||
+            svgHtml.indexOf('M8 1.25a2.75') !== -1 ||
+            svgHtml.indexOf('1.325 3.24') !== -1 ||
+            svgHtml.indexOf('M10 .5a3.563') !== -1) {
+          result.children += num;
+        } else {
+          result.adults += num;
         }
       }
     }
+  }
+
+  if (result.adults > 0 || result.children > 0) {
     result.total = result.adults + result.children;
+  }
+
+  // Способ 2 (фоллбэк): считаем карточки гостей по DOM
+  if (result.total === 0) {
+    var sectionText = guestsSection.textContent || '';
+    // Считаем «Гость N» (неименные)
+    var guestEntries = sectionText.match(/Гость\s+\d+/g);
+    var unnamedCount = guestEntries ? guestEntries.length : 0;
+
+    // Считаем именные карточки (ФИО — кириллические слова рядом с «Заселить» / кнопками)
+    var namedCount = 0;
+    var guestCards = guestsSection.querySelectorAll('div');
+    for (var c = 0; c < guestCards.length; c++) {
+      var cardDiv = guestCards[c];
+      var cardText = (cardDiv.textContent || '').trim();
+      // Карточка с «Заселить» или «Выселить» и ФИО внутри — именной гость
+      if ((cardText.indexOf('Заселить') !== -1 || cardText.indexOf('Выселить') !== -1 ||
+           cardText.indexOf('Заселен') !== -1) &&
+          cardText.match(/[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+/) &&
+          cardDiv.querySelector('svg') &&
+          cardText.indexOf('Гость') === -1) {
+        namedCount++;
+        break; // первый именной — основной гость
+      }
+    }
+
+    result.total = unnamedCount + namedCount;
+    result.children = result.childrenAges.length;
+    result.adults = Math.max(0, result.total - result.children);
   }
 
   // Формируем читаемый текст
