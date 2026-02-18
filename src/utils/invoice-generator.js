@@ -232,6 +232,10 @@ function generateInvoicePDF(bookingData, hotelDetails) {
 
   // ─── QR-коды для оплаты ───────────────────────────────────
 
+  // Проверяем, нужен ли второй QR-код
+  // Если предоплата равна полной сумме (3 ночи или меньше), второй QR не нужен
+  var needsSecondQR = bookingData.prepayAmount < bookingData.totalPrice;
+
   // Динамический размер QR: считаем сколько места осталось до конца страницы
   // Фиксированный контент после QR: подписи + назначение + примечание + директор ≈ 45мм
   var pageBottom = 284;
@@ -239,7 +243,9 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   var availableForQR = pageBottom - y - fixedAfterQR;
   var qrSize = Math.min(44, Math.max(28, availableForQR - 16));
   var qrGap = 14;
-  var qrBlockWidth = qrSize * 2 + qrGap;
+  
+  // Вычисляем ширину блока QR: один или два QR-кода
+  var qrBlockWidth = needsSecondQR ? (qrSize * 2 + qrGap) : qrSize;
   var qrStartX = marginLeft + (contentWidth - qrBlockWidth) / 2;
 
   doc.setFontSize(9);
@@ -270,55 +276,60 @@ function generateInvoicePDF(bookingData, hotelDetails) {
     { align: 'center' }
   );
 
-  // QR 2: Полная оплата (со скидкой если есть)
-  var fullPurpose = 'Оплата за проживание по бронированию ' +
-    bookingData.bookingNumber + ', ' + (bookingData.guestName || '');
-  var fullQrData = buildPaymentQR(hotelDetails, fullPayment, fullPurpose);
-  var fullQrImg = generateQRDataUrl(fullQrData);
+  // QR 2: Полная оплата (только если отличается от предоплаты)
+  if (needsSecondQR) {
+    var fullPurpose = 'Оплата за проживание по бронированию ' +
+      bookingData.bookingNumber + ', ' + (bookingData.guestName || '');
+    var fullQrData = buildPaymentQR(hotelDetails, fullPayment, fullPurpose);
+    var fullQrImg = generateQRDataUrl(fullQrData);
 
-  var qr2X = qrStartX + qrSize + qrGap;
+    var qr2X = qrStartX + qrSize + qrGap;
 
-  if (fullQrImg) {
-    doc.addImage(fullQrImg, 'PNG', qr2X, y, qrSize, qrSize);
-  }
+    if (fullQrImg) {
+      doc.addImage(fullQrImg, 'PNG', qr2X, y, qrSize, qrSize);
+    }
 
-  // Подпись под QR 2
-  var qr2CenterX = qr2X + qrSize / 2;
-  doc.setFontSize(8);
-  doc.setTextColor(52, 168, 83);
-
-  if (discountPercent > 0) {
-    doc.text(
-      'Оплатить всю стоимость',
-      qr2CenterX,
-      y + qrSize + 4,
-      { align: 'center' }
-    );
-    doc.text(
-      'со скидкой ' + discountPercent + '%',
-      qr2CenterX,
-      y + qrSize + 9,
-      { align: 'center' }
-    );
+    // Подпись под QR 2
+    var qr2CenterX = qr2X + qrSize / 2;
     doc.setFontSize(8);
-    doc.text(
-      '(' + formatMoney(fullPayment) + ' вместо ' + formatMoney(bookingData.totalPrice) + ' руб.)',
-      qr2CenterX,
-      y + qrSize + 13,
-      { align: 'center' }
-    );
-  } else {
-    doc.text('Полная оплата', qr2CenterX, y + qrSize + 4, { align: 'center' });
-    doc.setFontSize(9);
-    doc.text(
-      formatMoney(fullPayment) + ' руб.',
-      qr2CenterX,
-      y + qrSize + 9,
-      { align: 'center' }
-    );
-  }
+    doc.setTextColor(52, 168, 83);
 
-  y += discountPercent > 0 ? qrSize + 18 : qrSize + 14;
+    if (discountPercent > 0) {
+      doc.text(
+        'Оплатить всю стоимость',
+        qr2CenterX,
+        y + qrSize + 4,
+        { align: 'center' }
+      );
+      doc.text(
+        'со скидкой ' + discountPercent + '%',
+        qr2CenterX,
+        y + qrSize + 9,
+        { align: 'center' }
+      );
+      doc.setFontSize(8);
+      doc.text(
+        '(' + formatMoney(fullPayment) + ' вместо ' + formatMoney(bookingData.totalPrice) + ' руб.)',
+        qr2CenterX,
+        y + qrSize + 13,
+        { align: 'center' }
+      );
+    } else {
+      doc.text('Полная оплата', qr2CenterX, y + qrSize + 4, { align: 'center' });
+      doc.setFontSize(9);
+      doc.text(
+        formatMoney(fullPayment) + ' руб.',
+        qr2CenterX,
+        y + qrSize + 9,
+        { align: 'center' }
+      );
+    }
+
+    y += discountPercent > 0 ? qrSize + 18 : qrSize + 14;
+  } else {
+    // Только один QR-код — добавляем отступ после него
+    y += qrSize + 14;
+  }
 
   // ─── Назначение платежа (выделенный блок) ───────────────
 
