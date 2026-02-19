@@ -850,13 +850,32 @@
 
   // ─── Инициализация ──────────────────────────────────────────
 
+  console.log('[KonturUpdate] Content script загружен, ID расширения:', chrome.runtime.id);
+
   // ─── Обработчик сообщений от service worker (обновления) ───
 
   chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     if (message.action === 'UPDATE_AVAILABLE') {
+      console.log('[KonturUpdate] Получено сообщение об обновлении:', message.data);
       showUpdateNotification(message.data);
+      sendResponse({received: true});
     }
+    return true; // Важно для асинхронного ответа
   });
+
+  // Запрашиваем проверку обновлений сразу после загрузки
+  setTimeout(function () {
+    console.log('[KonturUpdate] Запрос проверки обновлений у service worker...');
+    chrome.runtime.sendMessage(
+      { action: 'CHECK_UPDATES' },
+      function (response) {
+        if (response && response.success && response.data.available) {
+          console.log('[KonturUpdate] Обнаружена новая версия:', response.data.release.version);
+          showUpdateNotification(response.data);
+        }
+      }
+    );
+  }, 1000);
 
   /**
    * Показывает уведомление о доступном обновлении.
@@ -900,9 +919,6 @@
           'Позже' +
         '</button>' +
       '</div>' +
-      '<div class="kontur-update-notification__hint">' +
-        '📁 После скачивания запустите <code>update.ps1</code> для автоматической установки' +
-      '</div>' +
       '<button class="kontur-update-notification__close" id="kontur-update-close-btn">✕</button>';
 
     document.body.appendChild(notification);
@@ -925,30 +941,95 @@
       hideUpdateNotification();
     });
 
-    // Автозакрытие через 30 секунд
-    notification.autoCloseTimer = setTimeout(hideUpdateNotification, 30000);
+    // Убрали автозакрытие - уведомление закрывается только пользователем
+    // notification.autoCloseTimer = setTimeout(hideUpdateNotification, 30000);
   }
 
   /**
    * Открывает страницу релиза на GitHub для скачивания.
    */
   function openReleasePage(release) {
-    var releaseUrl = 'https://github.com/' + GITHUB_REPO_OWNER + '/' + GITHUB_REPO_NAME + '/releases/latest';
-    window.open(releaseUrl, '_blank');
-
     var notification = document.getElementById('kontur-update-notification');
     if (notification) {
       notification.innerHTML =
         '<div class="kontur-update-notification__header">' +
-          '<span class="kontur-update-notification__icon">✅</span>' +
-          '<span class="kontur-update-notification__title">Страница релиза открыта</span>' +
+          '<span class="kontur-update-notification__icon">📥</span>' +
+          '<span class="kontur-update-notification__title">Как обновить</span>' +
         '</div>' +
-        '<div class="kontur-update-notification__hint">' +
-          '1. Скачайте ZIP-архив в разделе Assets<br>' +
-          '2. Распакуйте с заменой файлов<br>' +
-          '3. В <code>chrome://extensions/</code> нажмите «Обновить»<br>' +
-          'Или запустите <code>update.ps1</code> для автоустановки' +
+        '<div class="kontur-update-notification__steps">' +
+          '<div class="kontur-update-notification__step">' +
+            '<span class="kontur-update-notification__step-num">1</span>' +
+            '<span>Откройте проводник и перейдите в папку:</span>' +
+          '</div>' +
+          '<div class="kontur-update-notification__path">' +
+            '<code id="kontur-install-path">C:\\KonturExpansionChrome</code>' +
+            '<button class="kontur-update-notification__copy-btn" id="kontur-copy-path-btn" title="Копировать путь">' +
+              '📋' +
+            '</button>' +
+          '</div>' +
+          '<div class="kontur-update-notification__step">' +
+            '<span class="kontur-update-notification__step-num">2</span>' +
+            '<span>Запустите <strong>update.bat</strong></span>' +
+          '</div>' +
+          '<div class="kontur-update-notification__step">' +
+            '<span class="kontur-update-notification__step-num">3</span>' +
+            '<span>Подтвердите запуск от имени администратора</span>' +
+          '</div>' +
+          '<div class="kontur-update-notification__step">' +
+            '<span class="kontur-update-notification__step-num">4</span>' +
+            '<span>Дождитесь завершения (обновление установится автоматически)</span>' +
+          '</div>' +
+          '<div class="kontur-update-notification__step">' +
+            '<span class="kontur-update-notification__step-num">5</span>' +
+            '<span><strong>Перезапустите Chrome</strong> для применения обновлений</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="kontur-update-notification__actions">' +
+          '<button class="kontur-update-notification__btn kontur-update-notification__btn--primary" id="kontur-update-github-btn">' +
+            '🌐 Открыть GitHub Releases' +
+          '</button>' +
         '</div>';
+
+      // Кнопка копирования пути
+      document.getElementById('kontur-copy-path-btn').addEventListener('click', function () {
+        var pathText = 'C:\\KonturExpansionChrome';
+        navigator.clipboard.writeText(pathText).then(function () {
+          var btn = document.getElementById('kontur-copy-path-btn');
+          btn.textContent = '✅';
+          btn.title = 'Скопировано!';
+          setTimeout(function () {
+            btn.textContent = '📋';
+            btn.title = 'Копировать путь';
+          }, 2000);
+        }).catch(function () {
+          // Fallback для старых браузеров
+          var textArea = document.createElement('textarea');
+          textArea.value = pathText;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-9999px';
+          document.body.appendChild(textArea);
+          textArea.select();
+          try {
+            document.execCommand('copy');
+            var btn = document.getElementById('kontur-copy-path-btn');
+            btn.textContent = '✅';
+            btn.title = 'Скопировано!';
+            setTimeout(function () {
+              btn.textContent = '📋';
+              btn.title = 'Копировать путь';
+            }, 2000);
+          } catch (err) {
+            console.error('Не удалось скопировать:', err);
+          }
+          document.body.removeChild(textArea);
+        });
+      });
+
+      // Кнопка GitHub
+      document.getElementById('kontur-update-github-btn').addEventListener('click', function () {
+        var releaseUrl = 'https://github.com/' + GITHUB_REPO_OWNER + '/' + GITHUB_REPO_NAME + '/releases/latest';
+        window.open(releaseUrl, '_blank');
+      });
     }
   }
 
@@ -958,9 +1039,7 @@
   function hideUpdateNotification() {
     var notification = document.getElementById('kontur-update-notification');
     if (notification) {
-      if (notification.autoCloseTimer) {
-        clearTimeout(notification.autoCloseTimer);
-      }
+      // Убрали очистку таймера - теперь его нет
       notification.classList.remove('kontur-update-notification--visible');
       setTimeout(function () {
         notification.remove();

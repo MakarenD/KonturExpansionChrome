@@ -1,14 +1,21 @@
-# PowerShell-скрипт для автоматического обновления расширения Контур Отель
-# Запуск: .\update.ps1 или правой кнопкой → "Выполнить с PowerShell"
+﻿# PowerShell-скрипт для автоматического обновления расширения Контур Отель
+# Запуск: дважды кликните по update.bat или правой кнопкой на run-update.ps1
 
 param(
     [string]$RepoOwner = "MakarenD",  # GitHub username
     [string]$RepoName = "KonturExpansionChrome",
-    [string]$InstallPath = "C:\KonturExpansionChrome"  # Единый путь для всех пользователей
+    [string]$InstallPath = "C:\KonturExpansionChrome",  # Единый путь для всех пользователей
+    [switch]$AutoConfirm = $false  # Автоматическое подтверждение без запроса Y/N
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"  # Продолжать выполнение при ошибках
 
+# Включаем логирование в файл
+$logFile = Join-Path $env:TEMP "KonturUpdate-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+
+# Устанавливаем кодировку UTF8 для вывода
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
     $timestamp = Get-Date -Format "HH:mm:ss"
@@ -18,7 +25,9 @@ function Write-Log {
         "WARNING" { "Yellow" }
         "ERROR" { "Red" }
     }
-    Write-Host "[$timestamp] [$Level] $Message" -ForegroundColor $color
+    $logMessage = "[$timestamp] [$Level] $Message"
+    Write-Host $logMessage -ForegroundColor $color
+    Add-Content -Path $logFile -Value $logMessage
 }
 
 function Test-Admin {
@@ -28,12 +37,21 @@ function Test-Admin {
 
 function Get-LatestRelease {
     param([string]$Owner, [string]$Repo)
-    
+
     $url = "https://api.github.com/repos/$Owner/$Repo/releases/latest"
-    Write-Log "Запрос к GitHub API: $url"
-    
+    Write-Log "GitHub API URL: $url"
+
     try {
-        $response = Invoke-RestMethod -Uri $url -Method Get -ErrorAction Stop
+        # Добавляем User-Agent (требуется для GitHub API)
+        $headers = @{
+            'User-Agent' = 'KonturExpansion-Chrome-Update-Script'
+            'Accept' = 'application/vnd.github.v3+json'
+        }
+        
+        $response = Invoke-RestMethod -Uri $url -Method Get -Headers $headers -ErrorAction Stop
+        
+        Write-Log "Получен ответ от GitHub: tag=$($response.tag_name)"
+        
         return @{
             TagName = $response.tag_name
             Name = $response.name
@@ -44,6 +62,7 @@ function Get-LatestRelease {
     }
     catch {
         Write-Log "Ошибка получения релиза: $_" "ERROR"
+        Write-Log "Response: $($_.ErrorDetails.Message)" "ERROR"
         return $null
     }
 }
@@ -118,6 +137,20 @@ function Install-Update {
 Write-Log "=== Обновление расширения Контур Отель ==="
 Write-Log "Репозиторий: $RepoOwner/$RepoName"
 Write-Log "Путь установки: $InstallPath"
+Write-Log "Лог файл: $logFile"
+
+# Проверка прав администратора (нужны для записи в C:\)
+if (-not (Test-Admin)) {
+    Write-Log "ТРЕБУЮТСЯ ПРАВА АДМИНИСТРАТОРА!" "ERROR"
+    Write-Log "Запуск PowerShell от имени администратора..." "WARNING"
+    
+    # Перезапуск от имени администратора
+    $scriptPath = $MyInvocation.MyCommand.Path
+    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -RepoOwner `"$RepoOwner`" -RepoName `"$RepoName`" -InstallPath `"$InstallPath`""
+    exit
+}
+
+Write-Log "Права администратора: подтверждены" "SUCCESS"
 
 # Получаем информацию о последнем релизе
 $release = Get-LatestRelease -Owner $RepoOwner -Repo $RepoName
@@ -150,25 +183,36 @@ else {
 # Сравниваем версии
 $compareResult = Compare-Versions -LocalVersion $localVersion -RemoteVersion $release.TagName
 
-if ($compareResult -ge 0) {
+Write-Log "Сравнение версий: $localVersion vs $($release.TagName) = $compareResult" "INFO"
+Write-Log "Результат: 1=новая доступна, 0=равны, -1=локальная новее" "INFO"
+
+if ($compareResult -le 0) {
     Write-Log "У вас актуальная версия. Обновление не требуется." "SUCCESS"
     exit 0
 }
 
 Write-Log "Доступна новая версия: $($release.TagName)" "WARNING"
-Write-Log "`nЧто нового:`n$($release.Body)"
 
-# Запрашиваем подтверждение
-$confirmation = Read-Host "`nУстановить обновление? (Y/N)"
+if ($release.Body) {
+    Write-Log "`nЧто нового:`n$($release.Body)" "INFO"
+}
+
+# Запрашиваем подтверждение (если не автоматический режим)
+if ($AutoConfirm) {
+    Write-Log "Автоматическое подтверждение - начинаем обновление..." "INFO"
+    $confirmation = 'Y'
+} else {
+    $confirmation = Read-Host "`nInstall update? (Y/N)"
+}
 
 if ($confirmation -notmatch '^[Yy]') {
-    Write-Log "Обновление отменено пользователем"
+    Write-Log "Update cancelled by user"
     exit 0
 }
 
 try {
     Install-Update -ZipUrl $release.ZipUrl -InstallPath $InstallPath -Version $release.TagName
-    
+
     Write-Log "`n=========================================" "SUCCESS"
     Write-Log "ОБНОВЛЕНИЕ УСТАНОВЛЕНО!" "SUCCESS"
     Write-Log "=========================================" "SUCCESS"
@@ -178,8 +222,23 @@ try {
     Write-Log "3. Нажмите кнопку обновления (🔄)"
     Write-Log "4. Обновите страницу hotel.kontur.ru"
     Write-Log "`nИли перезапустите Chrome для применения обновлений."
+    
+    # Пауза чтобы пользователь успел прочитать (только если не автоматический режим)
+    if (-not $AutoConfirm) {
+        Write-Log "`nНажмите любую клавишу для выхода..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    } else {
+        Write-Log "`nОкно автоматически закроется через 1 секунду..."
+        Start-Sleep -Seconds 1
+    }
 }
 catch {
     Write-Log "`nОшибка при установке: $_" "ERROR"
+    if (-not $AutoConfirm) {
+        Write-Log "Нажмите любую клавишу для выхода..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    } else {
+        Start-Sleep -Seconds 1
+    }
     exit 1
 }

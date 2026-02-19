@@ -91,40 +91,75 @@ function compareVersions(v1, v2) {
 
 /** Запускает периодическую проверку обновлений. */
 function startUpdateChecker() {
+  console.log('[KonturUpdate] Проверка обновлений запущена (интервал: 1 минута)');
+  
   // Проверяем сразу при старте service worker
   checkForUpdates().then(function (result) {
+    console.log('[KonturUpdate] Результат проверки:', result);
     if (result.available) {
-      // Уведомляем все открытые страницы с hotel.kontur.ru
-      chrome.tabs.query({ url: 'https://hotel.kontur.ru/*' }, function (tabs) {
-        tabs.forEach(function (tab) {
-          chrome.tabs.sendMessage(tab.id, {
-            action: 'UPDATE_AVAILABLE',
-            data: result
-          }).catch(function () {
-            // Tab may not be ready yet, ignore
-          });
-        });
-      });
+      console.log('[KonturUpdate] Доступна новая версия:', result.release.version);
+      sendMessageToAllTabs(result);
     }
   });
   
   // Планируем повторную проверку через интервал
   setInterval(function () {
+    console.log('[KonturUpdate] Плановая проверка обновлений...');
     checkForUpdates().then(function (result) {
       if (result.available) {
-        chrome.tabs.query({ url: 'https://hotel.kontur.ru/*' }, function (tabs) {
-          tabs.forEach(function (tab) {
-            chrome.tabs.sendMessage(tab.id, {
-              action: 'UPDATE_AVAILABLE',
-              data: result
-            }).catch(function () {
-              // Tab may not be ready yet, ignore
-            });
-          });
-        });
+        sendMessageToAllTabs(result);
       }
     });
   }, UPDATE_CHECK_INTERVAL);
+}
+
+/**
+ * Отправляет сообщение всем вкладкам с hotel.kontur.ru
+ * с повторными попытками если content script ещё не готов
+ */
+function sendMessageToAllTabs(result) {
+  chrome.tabs.query({ url: 'https://hotel.kontur.ru/*' }, function (tabs) {
+    console.log('[KonturUpdate] Найдено вкладок hotel.kontur.ru:', tabs.length);
+    
+    if (tabs.length === 0) {
+      console.log('[KonturUpdate] Нет открытых вкладок hotel.kontur.ru - пропускаем уведомление');
+      return;
+    }
+    
+    tabs.forEach(function (tab) {
+      console.log('[KonturUpdate] Отправка сообщения на вкладку', tab.id, '...');
+      
+      // Первая попытка
+      sendWithRetry(tab.id, result, 0);
+    });
+  });
+}
+
+/**
+ * Отправляет сообщение с повторными попытками (0мс, 500мс, 1000мс)
+ */
+function sendWithRetry(tabId, result, attempt) {
+  if (attempt > 2) {
+    console.log('[KonturUpdate] Превышено число попыток для вкладки', tabId);
+    return;
+  }
+  
+  var delay = attempt * 500;
+  
+  setTimeout(function () {
+    chrome.tabs.sendMessage(tabId, {
+      action: 'UPDATE_AVAILABLE',
+      data: result
+    }, function(response) {
+      if (chrome.runtime.lastError) {
+        console.log('[KonturUpdate] Попытка', attempt + 1, 'неудачна:', chrome.runtime.lastError.message);
+        // Повторная попытка
+        sendWithRetry(tabId, result, attempt + 1);
+      } else {
+        console.log('[KonturUpdate] Успешно отправлено на вкладку', tabId, '(попытка', attempt + 1, ')');
+      }
+    });
+  }, delay);
 }
 
 // Запускаем проверку обновлений при старте service worker
