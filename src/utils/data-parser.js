@@ -379,10 +379,81 @@ function parseTotalPrice(container, text) {
   return 0;
 }
 
-/** Извлекает имя заказчика из секции «Гости». */
+/** Извлекает имя заказчика из секции «Информация». */
 function parseGuestName(container) {
-  // Приоритет: ищем в секции «Гости» — первый элемент с иконкой человека
-  // Берём полное текстовое содержимое (это может быть ФИО или реквизиты организации)
+  // Приоритет №1: ищем в секции «Информация» — первый элемент с иконкой человека
+  // Это может быть ФИО физического лица или реквизиты организации (ООО, ИНН, КПП и т.д.)
+  var infoSection = findSectionByLabel(container, 'Информация');
+  if (infoSection) {
+    // Ищем элементы с иконкой человека (svg с характерным path)
+    var allElements = infoSection.querySelectorAll('div, span');
+    for (var i = 0; i < allElements.length; i++) {
+      var el = allElements[i];
+      var svg = el.querySelector('svg');
+      if (svg) {
+        var svgHtml = svg.innerHTML || '';
+        // Иконка человека из секции Информация: path с "M10 2a4.499" или "M10 2.002a4.532"
+        if (svgHtml.indexOf('M10 2a4.499') !== -1 ||
+            svgHtml.indexOf('M10 2.002a4.532') !== -1 ||
+            svgHtml.indexOf('4.499 4.499 0 1 0') !== -1 ||
+            svgHtml.indexOf('4.5 4.5 0 1 0') !== -1) {
+          // Нашли иконку — извлекаем текст из этого же контейнера
+          // Ищем соседний div/span с текстом (реквизиты или ФИО)
+          var parent = el.closest('div');
+          if (parent) {
+            // Ищем текст в том же блоке или соседнем
+            var textEl = parent.querySelector('.rkW8Ki, .MP6CpJ, div[style*="gap"]');
+            if (textEl) {
+              var text = (textEl.textContent || '').trim();
+              // Исключаем технические тексты
+              if (text &&
+                  text.length > 5 &&
+                  text.indexOf('Стойка') === -1 &&
+                  text.indexOf('администратора') === -1 &&
+                  text.indexOf('Информация') === -1) {
+                return text.replace(/\s+/g, ' ').trim();
+              }
+            }
+            // Фоллбэк: берём весь текст родителя кроме svg
+            var fullText = '';
+            for (var n = 0; n < parent.childNodes.length; n++) {
+              if (parent.childNodes[n].nodeType === 3) {
+                fullText += parent.childNodes[n].textContent;
+              }
+            }
+            fullText = fullText.trim();
+            if (fullText &&
+                fullText.length > 5 &&
+                fullText.indexOf('Стойка') === -1 &&
+                fullText.indexOf('администратора') === -1) {
+              return fullText.replace(/\s+/g, ' ').trim();
+            }
+          }
+        }
+      }
+    }
+
+    // Фоллбэк: ищем первый текстовый элемент в секции Информация
+    // который содержит реквизиты (ИНН, ООО, ИП) или похож на ФИО
+    for (var j = 0; j < allElements.length; j++) {
+      var t = (allElements[j].textContent || '').trim();
+      if (t &&
+          t.length > 10 &&
+          t.indexOf('Стойка') === -1 &&
+          t.indexOf('администратора') === -1 &&
+          t.indexOf('Информация') === -1 &&
+          t.indexOf('Заселить') === -1 &&
+          (t.indexOf('ИНН') !== -1 ||
+           t.indexOf('ООО') !== -1 ||
+           t.indexOf('ИП') !== -1 ||
+           t.match(/^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+/))) {
+        return t.replace(/\s+/g, ' ').trim();
+      }
+    }
+  }
+
+  // Приоритет №2: ищем в секции «Гости» — только если не нашли в Информация
+  // Это нужно для случаев когда организация не указана в Информация
   var guestsSection = findSectionByLabel(container, 'Гости');
   if (guestsSection) {
     // Ищем карточки гостей: div с иконкой человека
@@ -410,10 +481,11 @@ function parseGuestName(container) {
           // Нашли иконку человека — извлекаем полный текст из карточки
           // Исключаем только заголовки и технические тексты
           if (cardText &&
-              cardText.length > 2 &&
+              cardText.length > 5 &&
               cardText.indexOf('Заселить') === -1 &&
               cardText.indexOf('Выселить') === -1 &&
-              cardText.indexOf('Гость') !== 0) { // не "Гость 2", "Гость 3" и т.д.
+              cardText.indexOf('Гость') !== 0 &&
+              !cardText.match(/^\d+\s*лет/)) { // исключаем возраст детей
             // Очищаем текст от лишних пробелов и переносов
             var cleanText = cardText.replace(/\s+/g, ' ').trim();
             if (cleanText.length > 2) {
@@ -421,39 +493,6 @@ function parseGuestName(container) {
             }
           }
         }
-      }
-    }
-
-    // Фоллбэк: ищем первый текстовый элемент в секции гостей
-    // который не является заголовком
-    var guestSpans = guestsSection.querySelectorAll('div, span');
-    for (var j = 0; j < guestSpans.length; j++) {
-      var gt = (guestSpans[j].textContent || '').trim();
-      if (gt &&
-          gt.length > 2 &&
-          gt !== 'Гости' &&
-          !gt.match(/^Гость\s+\d+$/) &&
-          gt.indexOf('Заселить') === -1 &&
-          gt.indexOf('Выселить') === -1) {
-        return gt.replace(/\s+/g, ' ').trim();
-      }
-    }
-  }
-
-  // Фоллбэк: ищем в секции «Информация» (только если не нашли в гостях)
-  var infoSection = findSectionByLabel(container, 'Информация');
-  if (infoSection) {
-    var spans = infoSection.querySelectorAll('div, span');
-    for (var i = 0; i < spans.length; i++) {
-      var t = (spans[i].textContent || '').trim();
-      // Исключаем «Стойка администратора» и технические тексты
-      if (t &&
-          t.length > 2 &&
-          t.indexOf('Стойка') === -1 &&
-          t.indexOf('администратора') === -1 &&
-          t.indexOf('Информация') === -1 &&
-          spans[i].children.length === 0) {
-        return t.replace(/\s+/g, ' ').trim();
       }
     }
   }
