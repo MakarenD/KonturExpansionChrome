@@ -850,6 +850,128 @@
 
   // ─── Инициализация ──────────────────────────────────────────
 
+  // ─── Обработчик сообщений от service worker (обновления) ───
+
+  chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
+    if (message.action === 'UPDATE_AVAILABLE') {
+      showUpdateNotification(message.data);
+    }
+  });
+
+  /**
+   * Показывает уведомление о доступном обновлении.
+   * @param {Object} data - данные от service worker
+   */
+  function showUpdateNotification(data) {
+    // Не показываем если уже есть уведомление
+    if (document.getElementById('kontur-update-notification')) {
+      return;
+    }
+
+    var release = data.release;
+    var localVersion = data.localVersion;
+
+    var notification = document.createElement('div');
+    notification.id = 'kontur-update-notification';
+    notification.className = 'kontur-update-notification';
+
+    var changelogPreview = release.body
+      ? release.body.split('\n').slice(0, 5).join('<br>')
+      : 'Информация о изменениях отсутствует';
+
+    notification.innerHTML =
+      '<div class="kontur-update-notification__header">' +
+        '<span class="kontur-update-notification__icon">🎉</span>' +
+        '<span class="kontur-update-notification__title">Доступна новая версия</span>' +
+      '</div>' +
+      '<div class="kontur-update-notification__version">' +
+        'Текущая: <strong>' + localVersion + '</strong> → ' +
+        'Новая: <strong>' + release.version + '</strong>' +
+      '</div>' +
+      '<div class="kontur-update-notification__changelog">' +
+        '<strong>Что нового:</strong><br>' +
+        changelogPreview +
+      '</div>' +
+      '<div class="kontur-update-notification__actions">' +
+        '<button class="kontur-update-notification__btn kontur-update-notification__btn--primary" id="kontur-update-download-btn">' +
+          '⬇️ Скачать обновление' +
+        '</button>' +
+        '<button class="kontur-update-notification__btn kontur-update-notification__btn--secondary" id="kontur-update-later-btn">' +
+          'Позже' +
+        '</button>' +
+      '</div>' +
+      '<div class="kontur-update-notification__hint">' +
+        '📁 После скачивания запустите <code>update.ps1</code> для автоматической установки' +
+      '</div>' +
+      '<button class="kontur-update-notification__close" id="kontur-update-close-btn">✕</button>';
+
+    document.body.appendChild(notification);
+
+    // Анимация появления
+    requestAnimationFrame(function () {
+      notification.classList.add('kontur-update-notification--visible');
+    });
+
+    // Обработчики кнопок
+    document.getElementById('kontur-update-download-btn').addEventListener('click', function () {
+      openReleasePage(release);
+    });
+
+    document.getElementById('kontur-update-later-btn').addEventListener('click', function () {
+      hideUpdateNotification();
+    });
+
+    document.getElementById('kontur-update-close-btn').addEventListener('click', function () {
+      hideUpdateNotification();
+    });
+
+    // Автозакрытие через 30 секунд
+    notification.autoCloseTimer = setTimeout(hideUpdateNotification, 30000);
+  }
+
+  /**
+   * Открывает страницу релиза на GitHub для скачивания.
+   */
+  function openReleasePage(release) {
+    var releaseUrl = 'https://github.com/' + GITHUB_REPO_OWNER + '/' + GITHUB_REPO_NAME + '/releases/latest';
+    window.open(releaseUrl, '_blank');
+
+    var notification = document.getElementById('kontur-update-notification');
+    if (notification) {
+      notification.innerHTML =
+        '<div class="kontur-update-notification__header">' +
+          '<span class="kontur-update-notification__icon">✅</span>' +
+          '<span class="kontur-update-notification__title">Страница релиза открыта</span>' +
+        '</div>' +
+        '<div class="kontur-update-notification__hint">' +
+          '1. Скачайте ZIP-архив в разделе Assets<br>' +
+          '2. Распакуйте с заменой файлов<br>' +
+          '3. В <code>chrome://extensions/</code> нажмите «Обновить»<br>' +
+          'Или запустите <code>update.ps1</code> для автоустановки' +
+        '</div>';
+    }
+  }
+
+  /**
+   * Скрывает уведомление об обновлении.
+   */
+  function hideUpdateNotification() {
+    var notification = document.getElementById('kontur-update-notification');
+    if (notification) {
+      if (notification.autoCloseTimer) {
+        clearTimeout(notification.autoCloseTimer);
+      }
+      notification.classList.remove('kontur-update-notification--visible');
+      setTimeout(function () {
+        notification.remove();
+      }, 300);
+    }
+  }
+
+  // Глобальные переменные для GitHub репозитория
+  var GITHUB_REPO_OWNER = 'MakarenD';  // GitHub username
+  var GITHUB_REPO_NAME = 'KonturExpansionChrome';
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', startObserver);
   } else {

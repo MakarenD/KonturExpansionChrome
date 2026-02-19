@@ -14,6 +14,124 @@
 
 // ─── Обработчик сообщений от content script ────────────────────
 
+// ─── Проверка обновлений ───────────────────────────────────────
+
+const GITHUB_REPO_OWNER = 'MakarenD';  // GitHub username
+const GITHUB_REPO_NAME = 'KonturExpansionChrome';
+const UPDATE_CHECK_INTERVAL = 1 * 60 * 1000; // 1 минута
+
+/**
+ * Проверяет наличие новой версии на GitHub Releases.
+ * @returns {Promise<{available: boolean, release?: Object, localVersion?: string}>}
+ */
+async function checkForUpdates() {
+  try {
+    // Получаем локальную версию из manifest.json через chrome.runtime
+    var localVersion = chrome.runtime.getManifest().version;
+    
+    // Запрашиваем последний релиз с GitHub API
+    var response = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases/latest`,
+      { headers: { 'Accept': 'application/vnd.github.v3+json' } }
+    );
+    
+    if (!response.ok) {
+      console.error('[KonturUpdate] Ошибка GitHub API:', response.status);
+      return { available: false, localVersion: localVersion };
+    }
+    
+    var release = await response.json();
+    var remoteVersion = release.tag_name.replace(/^v/, '');
+    
+    // Сравниваем версии
+    if (compareVersions(localVersion, remoteVersion) < 0) {
+      console.log('[KonturUpdate] Доступна новая версия:', remoteVersion);
+      return {
+        available: true,
+        localVersion: localVersion,
+        release: {
+          version: remoteVersion,
+          tagName: release.tag_name,
+          name: release.name,
+          publishedAt: release.published_at,
+          body: release.body,
+          zipUrl: release.zipball_url
+        }
+      };
+    }
+    
+    return { available: false, localVersion: localVersion };
+  }
+  catch (error) {
+    console.error('[KonturUpdate] Ошибка проверки обновлений:', error);
+    return { available: false, error: error.message };
+  }
+}
+
+/**
+ * Сравнивает две семантические версии.
+ * @param {string} v1 - Первая версия
+ * @param {string} v2 - Вторая версия
+ * @returns {number} -1 если v1 < v2, 0 если равны, 1 если v1 > v2
+ */
+function compareVersions(v1, v2) {
+  var parts1 = v1.split('.').map(Number);
+  var parts2 = v2.split('.').map(Number);
+  var len = Math.max(parts1.length, parts2.length);
+  
+  for (var i = 0; i < len; i++) {
+    var n1 = parts1[i] || 0;
+    var n2 = parts2[i] || 0;
+    
+    if (n1 < n2) return -1;
+    if (n1 > n2) return 1;
+  }
+  return 0;
+}
+
+/** Запускает периодическую проверку обновлений. */
+function startUpdateChecker() {
+  // Проверяем сразу при старте service worker
+  checkForUpdates().then(function (result) {
+    if (result.available) {
+      // Уведомляем все открытые страницы с hotel.kontur.ru
+      chrome.tabs.query({ url: 'https://hotel.kontur.ru/*' }, function (tabs) {
+        tabs.forEach(function (tab) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'UPDATE_AVAILABLE',
+            data: result
+          }).catch(function () {
+            // Tab may not be ready yet, ignore
+          });
+        });
+      });
+    }
+  });
+  
+  // Планируем повторную проверку через интервал
+  setInterval(function () {
+    checkForUpdates().then(function (result) {
+      if (result.available) {
+        chrome.tabs.query({ url: 'https://hotel.kontur.ru/*' }, function (tabs) {
+          tabs.forEach(function (tab) {
+            chrome.tabs.sendMessage(tab.id, {
+              action: 'UPDATE_AVAILABLE',
+              data: result
+            }).catch(function () {
+              // Tab may not be ready yet, ignore
+            });
+          });
+        });
+      }
+    });
+  }, UPDATE_CHECK_INTERVAL);
+}
+
+// Запускаем проверку обновлений при старте service worker
+startUpdateChecker();
+
+// ─── Обработчик сообщений от content script ────────────────────
+
 chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (message.action === 'SEND_INVOICE_EMAIL') {
     handleSendInvoice(message.data)
@@ -32,6 +150,17 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     chrome.storage.local.get(['backendUrl', 'apiKey'], function (data) {
       sendResponse({ success: true, data: data });
     });
+    return true;
+  }
+  
+  if (message.action === 'CHECK_UPDATES') {
+    checkForUpdates()
+      .then(function (result) {
+        sendResponse({ success: true, data: result });
+      })
+      .catch(function (error) {
+        sendResponse({ success: false, error: error.message });
+      });
     return true;
   }
 });

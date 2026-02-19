@@ -15,3 +15,10 @@ Thumbs.db
 
 # Temp files
 *.log
+
+# Images for PDF (не публиковать)
+печать.png
+подпись.png
+
+# Внутренняя документация
+QWEN.md
