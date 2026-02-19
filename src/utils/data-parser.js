@@ -379,35 +379,77 @@ function parseTotalPrice(container, text) {
   return 0;
 }
 
-/** Извлекает ФИО гостя из секции «Информация». */
+/** Извлекает ФИО гостя из секции «Гости». */
 function parseGuestName(container) {
-  // Ищем секцию «Информация»
-  var infoSection = findSectionByLabel(container, 'Информация');
-  if (infoSection) {
-    // В секции «Информация» ФИО — это текст рядом с иконкой человека,
-    // обычно первый текстовый элемент после иконки
-    var spans = infoSection.querySelectorAll('div, span');
-    for (var i = 0; i < spans.length; i++) {
-      var t = (spans[i].textContent || '').trim();
+  // Приоритет: ищем в секции «Гости» — первый гость с иконкой человека
+  // Это решает проблему когда в секции «Информация» вместо имени плательщика
+  // отображается «Стойка администратора» при длинном имени плательщика
+  var guestsSection = findSectionByLabel(container, 'Гости');
+  if (guestsSection) {
+    // Ищем карточки гостей: div с иконкой человека и текстом ФИО
+    var guestCards = guestsSection.querySelectorAll('div');
+    for (var c = 0; c < guestCards.length; c++) {
+      var card = guestCards[c];
+      var cardText = (card.textContent || '').trim();
+      
+      // Пропускаем заголовки «Гости», «Гость N»
+      if (cardText === 'Гости' || cardText.match(/^Гость\s+\d+$/)) {
+        continue;
+      }
+      
+      // Ищем ФИО: 2-4 слова из кириллицы, без цифр
+      // Приоритет: ищем рядом с иконкой человека (svg с характерным path)
+      var svg = card.querySelector('svg');
+      if (svg) {
+        var svgHtml = svg.innerHTML || '';
+        // Иконка взрослого: path с "M10 2.002a4.532" или "M8 1.25a2.75"
+        // Иконка человека с руками: "1.325 3.24"
+        if (svgHtml.indexOf('M10 2.002a4.532') !== -1 ||
+            svgHtml.indexOf('M8 1.25a2.75') !== -1 ||
+            svgHtml.indexOf('1.325 3.24') !== -1 ||
+            svgHtml.indexOf('4.5 4.5 0 1 0') !== -1) {
+          // Нашли иконку человека — извлекаем текст из этой карточки
+          var spans = card.querySelectorAll('span, div');
+          for (var s = 0; s < spans.length; s++) {
+            var t = (spans[s].textContent || '').trim();
+            // ФИО: 2-5 слов, первое с большой буквы, без цифр
+            if (t.match(/^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(\s+[А-ЯЁ][а-яё]+)?(\s+[А-ЯЁ][а-яё]+)?(\s+[А-ЯЁ][а-яё]+)?$/) &&
+                t.length > 5 && t.length < 80 &&
+                !t.match(/\d/)) {
+              return t;
+            }
+          }
+        }
+      }
+    }
+    
+    // Фоллбэк: ищем просто текст похожий на ФИО в секции гостей
+    var guestSpans = guestsSection.querySelectorAll('div, span');
+    for (var j = 0; j < guestSpans.length; j++) {
+      var gt = (guestSpans[j].textContent || '').trim();
       // ФИО: 2-4 слова из кириллицы, без цифр и спецсимволов
-      if (t.match(/^[А-ЯЁа-яё]+\s+[А-ЯЁа-яё]+(\s+[А-ЯЁа-яё]+)?(\s+[А-ЯЁа-яё]+)?$/) &&
-          t.length > 5 && t.length < 80 &&
-          spans[i].children.length === 0) {
-        return t;
+      if (gt.match(/^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(\s+[А-ЯЁ][а-яё]+)?(\s+[А-ЯЁ][а-яё]+)?$/) &&
+          gt.length > 5 && gt.length < 80 &&
+          guestSpans[j].children.length === 0) {
+        return gt;
       }
     }
   }
 
-  // Фоллбэк: ищем в секции «Гости»
-  var guestsSection = findSectionByLabel(container, 'Гости');
-  if (guestsSection) {
-    var guestSpans = guestsSection.querySelectorAll('div, span');
-    for (var j = 0; j < guestSpans.length; j++) {
-      var gt = (guestSpans[j].textContent || '').trim();
-      if (gt.match(/^[А-ЯЁа-яё]+\s+[А-ЯЁа-яё]+(\s+[А-ЯЁа-яё]+)?$/) &&
-          gt.length > 5 && gt.length < 80 &&
-          guestSpans[j].children.length === 0) {
-        return gt;
+  // Фоллбэк: ищем в секции «Информация» (только если не нашли в гостях)
+  var infoSection = findSectionByLabel(container, 'Информация');
+  if (infoSection) {
+    var spans = infoSection.querySelectorAll('div, span');
+    for (var i = 0; i < spans.length; i++) {
+      var t = (spans[i].textContent || '').trim();
+      // ФИО: 2-4 слова из кириллицы, без цифр и спецсимволов
+      // Исключаем «Стойка администратора» и подобные
+      if (t.match(/^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(\s+[А-ЯЁ][а-яё]+)?(\s+[А-ЯЁ][а-яё]+)?$/) &&
+          t.length > 5 && t.length < 80 &&
+          spans[i].children.length === 0 &&
+          t.indexOf('Стойка') === -1 &&
+          t.indexOf('администратора') === -1) {
+        return t;
       }
     }
   }

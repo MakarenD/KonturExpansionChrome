@@ -159,7 +159,7 @@ function generateConfirmationPDF(bookingData, hotelDetails) {
 
   doc.setFontSize(10);
   doc.setTextColor(0, 0, 0);
-  doc.text('Информация о госте', marginLeft, y);
+  doc.text('Информация о заказчике', marginLeft, y);
   y += 5;
 
   doc.setFontSize(9);

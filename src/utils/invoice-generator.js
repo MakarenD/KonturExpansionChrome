@@ -86,12 +86,12 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   );
   y += 10;
 
-  // ─── Информация о госте ──────────────────────────────────
+  // ─── Информация о заказчике ──────────────────────────────────
 
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
 
-  y = drawLabelValue(doc, marginLeft, y, 'Гость:', bookingData.guestName);
+  y = drawLabelValue(doc, marginLeft, y, 'Заказчик:', bookingData.guestName);
   y = drawLabelValue(doc, marginLeft, y, 'Email:', bookingData.guestEmail);
   y = drawLabelValue(doc, marginLeft, y, 'Бронирование №:', bookingData.bookingNumber);
   if (bookingData.guestCount && bookingData.guestCount.total > 0) {
