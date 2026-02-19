@@ -163,9 +163,9 @@ function generateConfirmationPDF(bookingData, hotelDetails) {
   y += 5;
 
   doc.setFontSize(9);
-  // Для ФИО заказчика используем перенос строки если текст не влезает
+  // Для заказчика используем перенос строки если текст не влезает
   var maxLineValueWidth = contentWidth - 4; // максимальная ширина для значения
-  y = drawLabelValueCompact(doc, marginLeft, y, 'ФИО:', bookingData.guestName || '—', maxLineValueWidth);
+  y = drawLabelValueCompact(doc, marginLeft, y, 'Заказчик:', bookingData.guestName || '—', maxLineValueWidth);
 
   if (bookingData.guestEmail) {
     y = drawLabelValueCompact(doc, marginLeft, y, 'Email:', bookingData.guestEmail);
