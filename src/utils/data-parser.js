@@ -382,7 +382,7 @@ function parseTotalPrice(container, text) {
 /** Извлекает имя заказчика из секции «Информация». */
 function parseGuestName(container) {
   // Приоритет №1: ищем в секции «Информация» — первый элемент с иконкой человека
-  // Это может быть ФИО физического лица или реквизиты организации (ООО, ИНН, КПП и т.д.)
+  // Берём ТОЛЬКО текст из .rkW8Ki (реквизиты или ФИО), игнорируем телефон/email
   var infoSection = findSectionByLabel(container, 'Информация');
   if (infoSection) {
     // Ищем элементы с иконкой человека (svg с характерным path)
@@ -397,57 +397,35 @@ function parseGuestName(container) {
             svgHtml.indexOf('M10 2.002a4.532') !== -1 ||
             svgHtml.indexOf('4.499 4.499 0 1 0') !== -1 ||
             svgHtml.indexOf('4.5 4.5 0 1 0') !== -1) {
-          // Нашли иконку — извлекаем текст из этого же контейнера
-          // Ищем соседний div/span с текстом (реквизиты или ФИО)
+          // Нашли иконку — извлекаем ТОЛЬКО текст из .rkW8Ki
           var parent = el.closest('div');
           if (parent) {
-            // Ищем текст в том же блоке или соседнем
-            var textEl = parent.querySelector('.rkW8Ki, .MP6CpJ, div[style*="gap"]');
+            // Ищем ТОЛЬКО .rkW8Ki — это реквизиты заказчика
+            var textEl = parent.querySelector('.rkW8Ki');
             if (textEl) {
               var text = (textEl.textContent || '').trim();
               // Исключаем технические тексты
               if (text &&
                   text.length > 5 &&
                   text.indexOf('Стойка') === -1 &&
-                  text.indexOf('администратора') === -1 &&
-                  text.indexOf('Информация') === -1) {
+                  text.indexOf('администратора') === -1) {
                 return text.replace(/\s+/g, ' ').trim();
               }
-            }
-            // Фоллбэк: берём весь текст родителя кроме svg
-            var fullText = '';
-            for (var n = 0; n < parent.childNodes.length; n++) {
-              if (parent.childNodes[n].nodeType === 3) {
-                fullText += parent.childNodes[n].textContent;
-              }
-            }
-            fullText = fullText.trim();
-            if (fullText &&
-                fullText.length > 5 &&
-                fullText.indexOf('Стойка') === -1 &&
-                fullText.indexOf('администратора') === -1) {
-              return fullText.replace(/\s+/g, ' ').trim();
             }
           }
         }
       }
     }
 
-    // Фоллбэк: ищем первый текстовый элемент в секции Информация
-    // который содержит реквизиты (ИНН, ООО, ИП) или похож на ФИО
-    for (var j = 0; j < allElements.length; j++) {
-      var t = (allElements[j].textContent || '').trim();
-      if (t &&
-          t.length > 10 &&
-          t.indexOf('Стойка') === -1 &&
-          t.indexOf('администратора') === -1 &&
-          t.indexOf('Информация') === -1 &&
-          t.indexOf('Заселить') === -1 &&
-          (t.indexOf('ИНН') !== -1 ||
-           t.indexOf('ООО') !== -1 ||
-           t.indexOf('ИП') !== -1 ||
-           t.match(/^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+/))) {
-        return t.replace(/\s+/g, ' ').trim();
+    // Фоллбэк: ищем .rkW8Ki в секции Информация без привязки к иконке
+    var rkW8KiEl = infoSection.querySelector('.rkW8Ki');
+    if (rkW8KiEl) {
+      var text = (rkW8KiEl.textContent || '').trim();
+      if (text &&
+          text.length > 5 &&
+          text.indexOf('Стойка') === -1 &&
+          text.indexOf('администратора') === -1) {
+        return text.replace(/\s+/g, ' ').trim();
       }
     }
   }
@@ -479,7 +457,7 @@ function parseGuestName(container) {
             svgHtml.indexOf('1.325 3.24') !== -1 ||
             svgHtml.indexOf('4.5 4.5 0 1 0') !== -1) {
           // Нашли иконку человека — извлекаем полный текст из карточки
-          // Исключаем только заголовки и технические тексты
+          // Исключаем только заголовки, технические тексты и возраст детей
           if (cardText &&
               cardText.length > 5 &&
               cardText.indexOf('Заселить') === -1 &&

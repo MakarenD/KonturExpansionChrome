@@ -91,7 +91,9 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
 
-  y = drawLabelValue(doc, marginLeft, y, 'Заказчик:', bookingData.guestName);
+  // Для заказчика используем перенос строки если текст не влезает
+  var maxLineValueWidth = contentWidth - 4; // максимальная ширина для значения
+  y = drawLabelValue(doc, marginLeft, y, 'Заказчик:', bookingData.guestName, maxLineValueWidth);
   y = drawLabelValue(doc, marginLeft, y, 'Email:', bookingData.guestEmail);
   y = drawLabelValue(doc, marginLeft, y, 'Бронирование №:', bookingData.bookingNumber);
   if (bookingData.guestCount && bookingData.guestCount.total > 0) {
@@ -237,13 +239,15 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   var needsSecondQR = bookingData.prepayAmount < bookingData.totalPrice;
 
   // Динамический размер QR: считаем сколько места осталось до конца страницы
-  // Фиксированный контент после QR: подписи + назначение + примечание + директор ≈ 45мм
-  var pageBottom = 284;
-  var fixedAfterQR = 46;
+  // Фиксированный контент после QR: подписи QR + назначение + примечание + директор ≈ 55мм
+  var pageBottom = 290; // низ страницы A4 (297мм - 7мм отступ)
+  var fixedAfterQR = 55; // место после QR-кодов
   var availableForQR = pageBottom - y - fixedAfterQR;
-  var qrSize = Math.min(44, Math.max(28, availableForQR - 16));
-  var qrGap = 14;
   
+  // Размер QR: от 28 до 40мм, в зависимости от доступного места
+  var qrSize = Math.min(40, Math.max(28, availableForQR - 16));
+  var qrGap = 14;
+
   // Вычисляем ширину блока QR: один или два QR-кода
   var qrBlockWidth = needsSecondQR ? (qrSize * 2 + qrGap) : qrSize;
   var qrStartX = marginLeft + (contentWidth - qrBlockWidth) / 2;
@@ -443,13 +447,25 @@ function registerCyrillicFont(doc) {
   }
 }
 
-function drawLabelValue(doc, x, y, label, value) {
+function drawLabelValue(doc, x, y, label, value, maxLineWidth) {
   var labelWidth = doc.getTextWidth(label) + 2;
   doc.setTextColor(100, 100, 100);
   doc.text(label, x, y);
   doc.setTextColor(0, 0, 0);
-  doc.text(value || '—', x + labelWidth, y);
-  return y + 5;
+  
+  var valueText = value || '—';
+  var valueX = x + labelWidth;
+  
+  // Если есть ограничение по ширине строки и текст не влезает — делаем перенос
+  if (maxLineWidth && doc.getTextWidth(valueText) > maxLineWidth - labelWidth) {
+    // Разбиваем текст на строки с переносом
+    var splitValue = doc.splitTextToSize(valueText, maxLineWidth - labelWidth - 2);
+    doc.text(splitValue, valueX, y);
+    return y + (splitValue.length * 5);
+  } else {
+    doc.text(valueText, valueX, y);
+    return y + 5;
+  }
 }
 
 function drawLabelValueCompact(doc, x, y, label, value) {
