@@ -379,59 +379,63 @@ function parseTotalPrice(container, text) {
   return 0;
 }
 
-/** Извлекает ФИО гостя из секции «Гости». */
+/** Извлекает имя заказчика из секции «Гости». */
 function parseGuestName(container) {
-  // Приоритет: ищем в секции «Гости» — первый гость с иконкой человека
-  // Это решает проблему когда в секции «Информация» вместо имени плательщика
-  // отображается «Стойка администратора» при длинном имени плательщика
+  // Приоритет: ищем в секции «Гости» — первый элемент с иконкой человека
+  // Берём полное текстовое содержимое (это может быть ФИО или реквизиты организации)
   var guestsSection = findSectionByLabel(container, 'Гости');
   if (guestsSection) {
-    // Ищем карточки гостей: div с иконкой человека и текстом ФИО
+    // Ищем карточки гостей: div с иконкой человека
     var guestCards = guestsSection.querySelectorAll('div');
     for (var c = 0; c < guestCards.length; c++) {
       var card = guestCards[c];
       var cardText = (card.textContent || '').trim();
-      
+
       // Пропускаем заголовки «Гости», «Гость N»
       if (cardText === 'Гости' || cardText.match(/^Гость\s+\d+$/)) {
         continue;
       }
-      
-      // Ищем ФИО: 2-4 слова из кириллицы, без цифр
-      // Приоритет: ищем рядом с иконкой человека (svg с характерным path)
+
+      // Ищем иконку человека (svg с характерным path)
       var svg = card.querySelector('svg');
       if (svg) {
         var svgHtml = svg.innerHTML || '';
         // Иконка взрослого: path с "M10 2.002a4.532" или "M8 1.25a2.75"
         // Иконка человека с руками: "1.325 3.24"
+        // Иконка с "4.5 4.5 0 1 0"
         if (svgHtml.indexOf('M10 2.002a4.532') !== -1 ||
             svgHtml.indexOf('M8 1.25a2.75') !== -1 ||
             svgHtml.indexOf('1.325 3.24') !== -1 ||
             svgHtml.indexOf('4.5 4.5 0 1 0') !== -1) {
-          // Нашли иконку человека — извлекаем текст из этой карточки
-          var spans = card.querySelectorAll('span, div');
-          for (var s = 0; s < spans.length; s++) {
-            var t = (spans[s].textContent || '').trim();
-            // ФИО: 2-5 слов, первое с большой буквы, без цифр
-            if (t.match(/^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(\s+[А-ЯЁ][а-яё]+)?(\s+[А-ЯЁ][а-яё]+)?(\s+[А-ЯЁ][а-яё]+)?$/) &&
-                t.length > 5 && t.length < 80 &&
-                !t.match(/\d/)) {
-              return t;
+          // Нашли иконку человека — извлекаем полный текст из карточки
+          // Исключаем только заголовки и технические тексты
+          if (cardText &&
+              cardText.length > 2 &&
+              cardText.indexOf('Заселить') === -1 &&
+              cardText.indexOf('Выселить') === -1 &&
+              cardText.indexOf('Гость') !== 0) { // не "Гость 2", "Гость 3" и т.д.
+            // Очищаем текст от лишних пробелов и переносов
+            var cleanText = cardText.replace(/\s+/g, ' ').trim();
+            if (cleanText.length > 2) {
+              return cleanText;
             }
           }
         }
       }
     }
-    
-    // Фоллбэк: ищем просто текст похожий на ФИО в секции гостей
+
+    // Фоллбэк: ищем первый текстовый элемент в секции гостей
+    // который не является заголовком
     var guestSpans = guestsSection.querySelectorAll('div, span');
     for (var j = 0; j < guestSpans.length; j++) {
       var gt = (guestSpans[j].textContent || '').trim();
-      // ФИО: 2-4 слова из кириллицы, без цифр и спецсимволов
-      if (gt.match(/^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(\s+[А-ЯЁ][а-яё]+)?(\s+[А-ЯЁ][а-яё]+)?$/) &&
-          gt.length > 5 && gt.length < 80 &&
-          guestSpans[j].children.length === 0) {
-        return gt;
+      if (gt &&
+          gt.length > 2 &&
+          gt !== 'Гости' &&
+          !gt.match(/^Гость\s+\d+$/) &&
+          gt.indexOf('Заселить') === -1 &&
+          gt.indexOf('Выселить') === -1) {
+        return gt.replace(/\s+/g, ' ').trim();
       }
     }
   }
@@ -442,14 +446,14 @@ function parseGuestName(container) {
     var spans = infoSection.querySelectorAll('div, span');
     for (var i = 0; i < spans.length; i++) {
       var t = (spans[i].textContent || '').trim();
-      // ФИО: 2-4 слова из кириллицы, без цифр и спецсимволов
-      // Исключаем «Стойка администратора» и подобные
-      if (t.match(/^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(\s+[А-ЯЁ][а-яё]+)?(\s+[А-ЯЁ][а-яё]+)?$/) &&
-          t.length > 5 && t.length < 80 &&
-          spans[i].children.length === 0 &&
+      // Исключаем «Стойка администратора» и технические тексты
+      if (t &&
+          t.length > 2 &&
           t.indexOf('Стойка') === -1 &&
-          t.indexOf('администратора') === -1) {
-        return t;
+          t.indexOf('администратора') === -1 &&
+          t.indexOf('Информация') === -1 &&
+          spans[i].children.length === 0) {
+        return t.replace(/\s+/g, ' ').trim();
       }
     }
   }
