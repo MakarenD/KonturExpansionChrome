@@ -52,10 +52,22 @@ function Get-LatestRelease {
         
         Write-Log "Получен ответ от GitHub: tag=$($response.tag_name)"
         
+        # Проверяем наличие ассетов в релизе
+        if (-not $response.assets -or $response.assets.Count -eq 0) {
+            Write-Log "В релизе нет прикреплённых файлов (assets)!" "ERROR"
+            Write-Log "Убедитесь, что к релизу приложен архив KonturExpansionChrome.zip" "ERROR"
+            return $null
+        }
+        
+        # Используем browser_download_url из первого ассета релиза
+        # (приложенный .zip, а не исходный код репозитория)
+        $assetUrl = $response.assets[0].browser_download_url
+        Write-Log "URL ассета релиза: $assetUrl"
+        
         return @{
             TagName = $response.tag_name
             Name = $response.name
-            ZipUrl = $response.zipball_url
+            ZipUrl = $assetUrl
             Body = $response.body
             PublishedAt = $response.published_at
         }
@@ -98,8 +110,20 @@ function Install-Update {
     $zipFile = Join-Path $tempPath "KonturExpansion-$Version.zip"
     $extractPath = Join-Path $tempPath "KonturExpansion-$Version-Extract"
     
-    Write-Log "Скачивание версии $Version..."
-    Invoke-WebRequest -Uri $ZipUrl -OutFile $zipFile -UseBasicParsing
+    Write-Log "Скачивание версии $Version из релиза..."
+    Write-Log "URL: $ZipUrl"
+    
+    # Заголовки для корректного скачивания с GitHub (обработка редиректов)
+    $headers = @{
+        'User-Agent' = 'KonturExpansion-Chrome-Update-Script'
+    }
+    Invoke-WebRequest -Uri $ZipUrl -OutFile $zipFile -UseBasicParsing -Headers $headers
+    
+    # Проверяем что файл скачался
+    if (-not (Test-Path $zipFile) -or (Get-Item $zipFile).Length -eq 0) {
+        throw "Файл не был скачан или пустой: $zipFile"
+    }
+    Write-Log "Архив скачан: $((Get-Item $zipFile).Length / 1KB) КБ" "SUCCESS"
     
     Write-Log "Распаковка архива..."
     if (Test-Path $extractPath) {
@@ -107,11 +131,28 @@ function Install-Update {
     }
     Expand-Archive -Path $zipFile -DestinationPath $extractPath -Force
     
-    # Находим распакованную папку (GitHub добавляет префикс username-repo-commit)
-    $extractedFolder = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
+    # Определяем корневую папку с файлами расширения.
+    # Ассет релиза может содержать файлы напрямую (manifest.json в корне)
+    # или во вложенной папке (GitHub zipball — Owner-Repo-hash/manifest.json).
+    $sourceFolder = $extractPath
     
-    if (-not $extractedFolder) {
-        throw "Не найдена распакованная папка"
+    if (-not (Test-Path (Join-Path $extractPath "manifest.json"))) {
+        # manifest.json не в корне — ищем во вложенных папках
+        $subFolders = Get-ChildItem -Path $extractPath -Directory
+        $found = $false
+        foreach ($folder in $subFolders) {
+            if (Test-Path (Join-Path $folder.FullName "manifest.json")) {
+                $sourceFolder = $folder.FullName
+                $found = $true
+                Write-Log "Файлы расширения найдены в: $($folder.Name)"
+                break
+            }
+        }
+        if (-not $found) {
+            throw "Не найден manifest.json в архиве — архив не содержит расширение Chrome"
+        }
+    } else {
+        Write-Log "Файлы расширения найдены в корне архива"
     }
     
     Write-Log "Копирование файлов в $InstallPath..."
@@ -123,7 +164,16 @@ function Install-Update {
     }
     
     # Копируем файлы с заменой
-    Copy-Item -Path "$($extractedFolder.FullName)\*" -Destination $InstallPath -Recurse -Force
+    Copy-Item -Path "$sourceFolder\*" -Destination $InstallPath -Recurse -Force
+    
+    # Проверяем что manifest.json скопировался
+    $destManifest = Join-Path $InstallPath "manifest.json"
+    if (Test-Path $destManifest) {
+        $m = Get-Content $destManifest -Raw | ConvertFrom-Json
+        Write-Log "Версия в установленном manifest.json: $($m.version)" "SUCCESS"
+    } else {
+        Write-Log "ВНИМАНИЕ: manifest.json не найден после копирования!" "ERROR"
+    }
     
     # Очищаем временные файлы
     Remove-Item -Path $zipFile -Force
