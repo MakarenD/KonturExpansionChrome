@@ -39,14 +39,23 @@
 
   var TOOLTIP_PREPAY_ID = 'kontur-tooltip-prepay';
   var ARROW_HINT_ID = 'kontur-arrow-hint';
+  var DISCOUNT_QR_TOGGLE_ID = 'kontur-discount-qr-toggle';
 
   var OBSERVER_DEBOUNCE_MS = 500;
   var lastUrl = window.location.href;
 
   // Кеш посуточных цен (из тултипа «Стоимость проживания»)
   var cachedDailyRates = null;
+  var cachedDailyRatesWithDiscount = null;
+  var cachedTotalPrice = 0;
+  var cachedTotalPriceWithDiscount = 0;
   var arrowHintTimer = null;
   var tooltipRetryTimer = null;
+
+  // Состояние настройки «Скидочный QR на полную оплату» (по умолчанию включена)
+  var discountedQREnabled = true;
+  // Скидка из тултипа (если есть)
+  var tooltipDiscountPercent = 0;
 
   // ─── SVG-иконки ─────────────────────────────────────────────
 
@@ -79,6 +88,16 @@
     '</svg>';
 
   // ─── Утилиты ────────────────────────────────────────────────
+
+  /**
+   * Форматирует число как деньги с пробелами (15 900).
+   */
+  function formatMoney(amount) {
+    if (!amount && amount !== 0) {
+      return '0';
+    }
+    return String(Math.round(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  }
 
   function showToast(message, type) {
     var existing = document.querySelector('.kontur-prepay-toast');
@@ -182,7 +201,7 @@
       return null;
     }
 
-    // Переопределяем предоплату на основе кешированных посуточных цен
+    // Переопределяем предоплату на основе кешированных посуточных цен БЕЗ скидки
     var prepay = 0;
     var daysForPrepay = Math.min(3, cachedDailyRates.length);
     for (var d = 0; d < daysForPrepay; d++) {
@@ -194,6 +213,12 @@
     bookingData.prepayAmount = prepay;
     bookingData.dailyRates = cachedDailyRates;
 
+    // Передаём данные о скидке из тултипа и полной сумме до скидки
+    bookingData.tooltipDiscountPercent = tooltipDiscountPercent;
+    if (cachedTotalPrice > 0) {
+      bookingData.totalPriceBeforeTooltipDiscount = cachedTotalPrice;
+    }
+
     var missingFields = validateBookingData(bookingData);
     if (missingFields.length > 0) {
       setButtonState(button, 'error', '❌ Не хватает данных');
@@ -202,7 +227,11 @@
       return null;
     }
 
-    var pdfResult = generateInvoicePDF(bookingData, HOTEL_DETAILS);
+    // Передаём параметры для расчёта QR-кодов
+    var pdfResult = generateInvoicePDF(bookingData, HOTEL_DETAILS, {
+      discountedQREnabled: discountedQREnabled,
+      tooltipDiscountPercent: tooltipDiscountPercent
+    });
 
     return { bookingData: bookingData, pdfResult: pdfResult };
   }
@@ -617,15 +646,21 @@
    * В этом случае планируется повторная попытка через 150–300 мс.
    */
   function tryCaptureDailyRates() {
-    var rates = parseDailyRatesFromTooltip();
-    if (rates.length > 0) {
-      cachedDailyRates = rates;
+    var ratesData = parseDailyRatesFromTooltip();
+    if (ratesData.rates.length > 0) {
+      cachedDailyRates = ratesData.rates;
+      cachedDailyRatesWithDiscount = ratesData.ratesWithDiscount;
+      cachedTotalPrice = ratesData.totalPrice;
+      cachedTotalPriceWithDiscount = ratesData.totalPriceWithDiscount;
+      if (ratesData.discountPercent > 0) {
+        tooltipDiscountPercent = ratesData.discountPercent;
+      }
       hideArrowHint();
       if (tooltipRetryTimer) {
         clearTimeout(tooltipRetryTimer);
         tooltipRetryTimer = null;
       }
-      console.log('[KonturPrepay] Цены по дням захвачены:', rates);
+      console.log('[KonturPrepay] Цены по дням захвачены:', ratesData);
       return;
     }
 
@@ -636,11 +671,17 @@
       if (tooltip) {
         tooltipRetryTimer = setTimeout(function () {
           tooltipRetryTimer = null;
-          var retryRates = parseDailyRatesFromTooltip();
-          if (retryRates.length > 0) {
-            cachedDailyRates = retryRates;
+          var retryRatesData = parseDailyRatesFromTooltip();
+          if (retryRatesData.rates.length > 0) {
+            cachedDailyRates = retryRatesData.rates;
+            cachedDailyRatesWithDiscount = retryRatesData.ratesWithDiscount;
+            cachedTotalPrice = retryRatesData.totalPrice;
+            cachedTotalPriceWithDiscount = retryRatesData.totalPriceWithDiscount;
+            if (retryRatesData.discountPercent > 0) {
+              tooltipDiscountPercent = retryRatesData.discountPercent;
+            }
             hideArrowHint();
-            console.log('[KonturPrepay] Цены по дням захвачены (retry):', retryRates);
+            console.log('[KonturPrepay] Цены по дням захвачены (retry):', retryRatesData);
             // Также инжектируем блок предоплаты в тултип (если ещё виден)
             tryInjectPrepayIntoTooltip();
           }
@@ -653,7 +694,8 @@
 
   /**
    * Добавляет строку «Предоплата» в тултип «Стоимость проживания».
-   * Показывает сумму первых 3 суток.
+   * Показывает сумму первых 3 суток от цены БЕЗ скидки.
+   * Добавляет переключатель «Скидочный QR на полную оплату».
    */
   function tryInjectPrepayIntoTooltip() {
     var tooltips = document.querySelectorAll('[data-tid="Tooltip__content"]');
@@ -665,14 +707,24 @@
       // Уже добавлено
       if (tooltip.querySelector('#' + TOOLTIP_PREPAY_ID)) continue;
 
-      var rates = parseDailyRatesFromElement(tooltip);
-      if (rates.length === 0) continue;
+      var ratesData = parseDailyRatesFromElement(tooltip);
+      if (ratesData.rates.length === 0) continue;
 
-      // Считаем предоплату (первые 3 суток)
+      // Сохраняем данные о скидке
+      tooltipDiscountPercent = ratesData.discountPercent;
+      console.log('[KonturPrepay] Скидка из тултипа:', tooltipDiscountPercent + '%');
+
+      // Если есть скидка в тултипе — автоматически выключаем галочку (но не блокируем)
+      if (tooltipDiscountPercent > 0) {
+        discountedQREnabled = false;
+        console.log('[KonturPrepay] Обнаружена скидка в тултипе — галочка выключена (можно включить вручную)');
+      }
+
+      // Считаем предоплату от цен БЕЗ скидки (первые 3 суток)
       var prepay = 0;
-      var daysForPrepay = Math.min(3, rates.length);
+      var daysForPrepay = Math.min(3, ratesData.rates.length);
       for (var d = 0; d < daysForPrepay; d++) {
-        prepay += rates[d];
+        prepay += ratesData.rates[d];
       }
 
       // Ищем блок «Итого за проживание» для вставки после него
@@ -703,9 +755,22 @@
       var daysLabel = daysForPrepay < 3
         ? daysForPrepay + ' ' + pluralize(daysForPrepay, 'сутки', 'суток', 'суток')
         : '3 сут.';
+
+      // Добавляем переключатель «Скидочный QR на полную оплату»
+      var toggleChecked = discountedQREnabled ? 'checked' : '';
+      var toggleHint = tooltipDiscountPercent > 0
+        ? ' (скидка ' + tooltipDiscountPercent + '% из тултипа)'
+        : '';
+
       prepayBlock.innerHTML =
         '<span>Предоплата (первые ' + daysLabel + '): ' +
-        '<strong>' + formatMoney(prepay) + ' ₽</strong></span>';
+        '<strong>' + formatMoney(prepay) + ' ₽</strong></span>' +
+        '<div class="kontur-discount-qr-toggle" style="margin-top: 8px; display: flex; align-items: center; gap: 8px;">' +
+          '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">' +
+            '<input type="checkbox" id="' + DISCOUNT_QR_TOGGLE_ID + '" ' + toggleChecked + ' style="cursor: pointer;">' +
+            '<span>Скидочный QR на полную оплату' + toggleHint + '</span>' +
+          '</label>' +
+        '</div>';
 
       if (insertAfter && insertAfter.parentElement) {
         insertAfter.parentElement.insertBefore(prepayBlock, insertAfter.nextSibling);
@@ -716,6 +781,15 @@
         } else {
           tooltip.appendChild(prepayBlock);
         }
+      }
+
+      // Навешиваем обработчик переключения галочки
+      var toggleCheckbox = document.getElementById(DISCOUNT_QR_TOGGLE_ID);
+      if (toggleCheckbox) {
+        toggleCheckbox.addEventListener('change', function(e) {
+          discountedQREnabled = e.target.checked;
+          console.log('[KonturPrepay] Галочка переключена:', discountedQREnabled);
+        });
       }
 
       console.log('[KonturPrepay] Блок предоплаты добавлен в тултип');
@@ -801,6 +875,11 @@
     if (currentUrl !== lastUrl) {
       lastUrl = currentUrl;
       cachedDailyRates = null; // Сбрасываем кеш при смене бронирования
+      cachedDailyRatesWithDiscount = null;
+      cachedTotalPrice = 0;
+      cachedTotalPriceWithDiscount = 0;
+      tooltipDiscountPercent = 0; // Сбрасываем скидку из тултипа
+      discountedQREnabled = true; // Сбрасываем галочку в значение по умолчанию
       if (tooltipRetryTimer) {
         clearTimeout(tooltipRetryTimer);
         tooltipRetryTimer = null;

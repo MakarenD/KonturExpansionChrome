@@ -17,9 +17,16 @@
  *
  * @param {Object} bookingData — данные бронирования (из parseBookingData)
  * @param {Object} hotelDetails — реквизиты отеля (HOTEL_DETAILS)
+ * @param {Object} options — дополнительные опции
+ * @param {boolean} options.discountedQREnabled — включена ли галочка «Скидочный QR на полную оплату»
+ * @param {number} options.tooltipDiscountPercent — процент скидки из тултипа (0 если нет)
  * @returns {{ blob: Blob, base64: string, filename: string }}
  */
-function generateInvoicePDF(bookingData, hotelDetails) {
+function generateInvoicePDF(bookingData, hotelDetails, options) {
+  options = options || {};
+  var discountedQREnabled = options.discountedQREnabled !== false; // по умолчанию true
+  var tooltipDiscountPercent = options.tooltipDiscountPercent || 0;
+
   var jsPDF = jspdf.jsPDF;
   var doc = new jsPDF({
     orientation: 'portrait',
@@ -37,10 +44,46 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   var invoiceNumber = generateInvoiceNumber(bookingData.bookingNumber);
   var invoiceDate = formatCurrentDate();
 
-  var discountPercent = bookingData.discountPercent || 0;
-  var fullPayment = bookingData.fullPaymentWithDiscount || bookingData.totalPrice;
-  // Доплата считается от полной стоимости БЕЗ скидки
-  var surchargeAtHotel = bookingData.totalPrice - bookingData.prepayAmount;
+  // Базовая скидка за длительность (5% или 8%)
+  var baseDiscountPercent = bookingData.discountPercent || 0;
+
+  // Сумма до скидки из тултипа (если есть)
+  var totalPriceBeforeTooltipDiscount = bookingData.totalPriceBeforeTooltipDiscount || bookingData.totalPrice;
+  
+  // Сумма со скидкой из тултипа (как показывает Контур) — используется для отображения в счёте
+  var totalPriceWithTooltipDiscount = bookingData.totalPrice;
+
+  // Логика расчёта суммы для второго QR:
+  // 1. Если галочка выключена → полная сумма БЕЗ скидки (как в Контуре)
+  // 2. Если галочка включена И есть скидка из тултипа → суммируем скидки (base + tooltip) от суммы ДО скидки
+  // 3. Если галочка включена И нет скидки из тултипа → сумма с базовой скидкой (5/8%)
+  var needsSecondQR = bookingData.prepayAmount < totalPriceWithTooltipDiscount;
+  var fullPayment = totalPriceWithTooltipDiscount; // по умолчанию сумма со скидкой из тултипа (как в Контуре)
+  var appliedDiscountPercent = 0; // скидка которая применяется ко второму QR
+
+  if (needsSecondQR) {
+    if (!discountedQREnabled) {
+      // Галочка выключена → полная сумма без скидки (как в Контуре)
+      fullPayment = totalPriceWithTooltipDiscount;
+      appliedDiscountPercent = 0;
+    } else if (tooltipDiscountPercent > 0) {
+      // Галочка включена И есть скидка из тултипа → суммируем скидки от суммы ДО скидки
+      // Сумма скидок: baseDiscountPercent + tooltipDiscountPercent
+      appliedDiscountPercent = Math.min(baseDiscountPercent + tooltipDiscountPercent, 20); // ограничим 20%
+      fullPayment = Math.round(totalPriceBeforeTooltipDiscount * (100 - appliedDiscountPercent) / 100);
+    } else if (baseDiscountPercent > 0) {
+      // Галочка включена И нет скидки из тултипа → базовая скидка
+      appliedDiscountPercent = baseDiscountPercent;
+      fullPayment = bookingData.fullPaymentWithDiscount || bookingData.totalPrice;
+    } else {
+      // Нет скидок вообще
+      fullPayment = totalPriceWithTooltipDiscount;
+      appliedDiscountPercent = 0;
+    }
+  }
+
+  // Доплата считается от суммы со скидкой из тултипа (как в Контуре) минус предоплата
+  var surchargeAtHotel = totalPriceWithTooltipDiscount - bookingData.prepayAmount;
   if (surchargeAtHotel < 0) {
     surchargeAtHotel = 0;
   }
@@ -110,7 +153,8 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   var roomLabelRaw = bookingData.roomType || 'Проживание';
   var nightsStr = String(bookingData.nightsCount);
   var rateStr = formatMoney(bookingData.nightlyRate);
-  var totalStr = formatMoney(bookingData.totalPrice);
+  // Сумма в таблице — со скидкой из тултипа (как в Контуре)
+  var totalStr = formatMoney(totalPriceWithTooltipDiscount);
 
   var colWidths = calcTableColumnWidths(doc, contentWidth, tableHeaders, [
     roomLabelRaw,
@@ -208,7 +252,7 @@ function generateInvoicePDF(bookingData, hotelDetails) {
   doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
   doc.text(
-    'Общая стоимость ' + formatMoney(bookingData.totalPrice) + ' руб.' +
+    'Общая стоимость ' + formatMoney(totalPriceWithTooltipDiscount) + ' руб.' +
     ' минус предоплата ' + formatMoney(bookingData.prepayAmount) + ' руб.',
     marginLeft,
     y
@@ -298,26 +342,39 @@ function generateInvoicePDF(bookingData, hotelDetails) {
     doc.setFontSize(8);
     doc.setTextColor(52, 168, 83);
 
-    if (discountPercent > 0) {
+    if (appliedDiscountPercent > 0) {
       doc.text(
         'Оплатить всю стоимость',
         qr2CenterX,
         y + qrSize + 4,
         { align: 'center' }
       );
-      doc.text(
-        'со скидкой ' + discountPercent + '%',
-        qr2CenterX,
-        y + qrSize + 9,
-        { align: 'center' }
-      );
-      doc.setFontSize(8);
-      doc.text(
-        '(' + formatMoney(fullPayment) + ' вместо ' + formatMoney(bookingData.totalPrice) + ' руб.)',
-        qr2CenterX,
-        y + qrSize + 13,
-        { align: 'center' }
-      );
+      // Показываем только базовую скидку (5/8%), а не суммарную
+      var displayDiscountPercent = tooltipDiscountPercent > 0 ? baseDiscountPercent : appliedDiscountPercent;
+      if (displayDiscountPercent > 0) {
+        doc.text(
+          'со скидкой ' + displayDiscountPercent + '%',
+          qr2CenterX,
+          y + qrSize + 9,
+          { align: 'center' }
+        );
+        doc.setFontSize(8);
+        doc.text(
+          '(' + formatMoney(fullPayment) + ' вместо ' + formatMoney(totalPriceWithTooltipDiscount) + ' руб.)',
+          qr2CenterX,
+          y + qrSize + 13,
+          { align: 'center' }
+        );
+        y += qrSize + 18;
+      } else {
+        doc.text(
+          formatMoney(fullPayment) + ' руб.',
+          qr2CenterX,
+          y + qrSize + 9,
+          { align: 'center' }
+        );
+        y += qrSize + 14;
+      }
     } else {
       doc.text('Полная оплата', qr2CenterX, y + qrSize + 4, { align: 'center' });
       doc.setFontSize(9);
@@ -327,9 +384,8 @@ function generateInvoicePDF(bookingData, hotelDetails) {
         y + qrSize + 9,
         { align: 'center' }
       );
+      y += qrSize + 14;
     }
-
-    y += discountPercent > 0 ? qrSize + 18 : qrSize + 14;
   } else {
     // Только один QR-код — добавляем отступ после него
     y += qrSize + 14;

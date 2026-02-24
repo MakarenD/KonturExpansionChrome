@@ -112,7 +112,8 @@ function parseBookingData() {
   // Предоплата = сумма первых 3 суток (из тултипа, если доступен)
   // Фоллбэк: (общая сумма / кол. ночей) × 3
   // content.js переопределит prepayAmount при наличии кешированных посуточных цен
-  var dailyRates = parseDailyRatesFromTooltip();
+  var dailyRatesData = parseDailyRatesFromTooltip();
+  var dailyRates = dailyRatesData.rates || dailyRatesData; // поддержка старого формата
   var prepayAmount = 0;
   if (dailyRates.length > 0) {
     var daysForPrepay = Math.min(3, dailyRates.length);
@@ -971,7 +972,8 @@ function parseBookingModalData(modalRoot) {
   var nightlyRate = nightsCount > 0 ? Math.round(totalPrice / nightsCount) : 0;
 
   // Предоплата = сумма первых 3 суток (из модального окна)
-  var dailyRates = parseDailyRatesFromElement(root);
+  var dailyRatesData = parseDailyRatesFromElement(root);
+  var dailyRates = dailyRatesData.rates || dailyRatesData; // поддержка старого формата
   var prepayAmount = 0;
   if (dailyRates.length > 0) {
     var daysForPrepay = Math.min(3, dailyRates.length);
@@ -1005,12 +1007,13 @@ function parseBookingModalData(modalRoot) {
  * Строки «Итого за проживание» пропускаются.
  *
  * @param {Element} root — корневой элемент для поиска
- * @returns {number[]} — массив цен по дням (в порядке номеров дней)
+ * @returns {{ rates: number[], ratesWithDiscount: number[], totalPrice: number, totalPriceWithDiscount: number, discountPercent: number }} — массив цен по дням (в порядке номеров дней) + данные о скидке
  */
 function parseDailyRatesFromElement(root) {
-  if (!root) return [];
+  if (!root) return { rates: [], ratesWithDiscount: [], totalPrice: 0, totalPriceWithDiscount: 0, discountPercent: 0 };
 
   var rates = [];
+  var ratesWithDiscount = [];
   var spans = root.querySelectorAll('span');
 
   for (var i = 0; i < spans.length; i++) {
@@ -1024,9 +1027,10 @@ function parseDailyRatesFromElement(root) {
     var dayNum = parseInt(text, 10);
     if (dayNum < 1 || dayNum > 365) continue;
 
-    // Поднимаемся по DOM, ищем строку содержащую и номер дня, и цену (title с ₽)
+    // Поднимаемся по DOM, ищем строку содержащую и номер дня, и цены
     var row = span;
     var priceFound = 0;
+    var priceWithDiscountFound = 0;
 
     for (var up = 0; up < 5; up++) {
       if (!row.parentElement || row.parentElement === root) break;
@@ -1036,24 +1040,40 @@ function parseDailyRatesFromElement(root) {
       var rowText = row.textContent || '';
       if (rowText.indexOf('Итого') !== -1) break;
 
-      var priceEl = row.querySelector('[title*="₽"]');
+      // Ищем первую цену (без скидки) — класс Arsj11 или первый title с ₽
+      var priceEl = row.querySelector('.Arsj11[title*="₽"]');
       if (priceEl) {
         var title = priceEl.getAttribute('title') || '';
         priceFound = parsePrice(title.replace('₽', ''));
+      }
+
+      // Ищем вторую цену (со скидкой) — класс k9mIu3
+      var priceDiscountEl = row.querySelector('.k9mIu3[title*="₽"]');
+      if (priceDiscountEl) {
+        var titleDisc = priceDiscountEl.getAttribute('title') || '';
+        priceWithDiscountFound = parsePrice(titleDisc.replace('₽', ''));
+      }
+
+      // Если нашли обе цены — выходим
+      if (priceFound > 0 || priceWithDiscountFound > 0) {
         break;
       }
     }
 
-    if (priceFound > 0) {
-      rates.push({ day: dayNum, price: priceFound });
+    if (priceFound > 0 || priceWithDiscountFound > 0) {
+      // Если цена без скидки не найдена, используем цену со скидкой
+      rates.push({ day: dayNum, price: priceFound > 0 ? priceFound : priceWithDiscountFound });
+      ratesWithDiscount.push({ day: dayNum, price: priceWithDiscountFound > 0 ? priceWithDiscountFound : priceFound });
     }
   }
 
   // Сортируем по номеру дня
   rates.sort(function (a, b) { return a.day - b.day; });
+  ratesWithDiscount.sort(function (a, b) { return a.day - b.day; });
 
   // Убираем дубликаты и возвращаем только цены
   var result = [];
+  var resultWithDiscount = [];
   var seen = {};
   for (var r = 0; r < rates.length; r++) {
     if (!seen[rates[r].day]) {
@@ -1061,14 +1081,41 @@ function parseDailyRatesFromElement(root) {
       seen[rates[r].day] = true;
     }
   }
+  for (var rd = 0; rd < ratesWithDiscount.length; rd++) {
+    if (!seen[ratesWithDiscount[rd].day + '_d']) {
+      resultWithDiscount.push(ratesWithDiscount[rd].price);
+      seen[ratesWithDiscount[rd].day + '_d'] = true;
+    }
+  }
 
-  return result;
+  // Считаем общую сумму и скидку
+  var totalPrice = 0;
+  for (var t = 0; t < result.length; t++) {
+    totalPrice += result[t];
+  }
+  var totalPriceWithDiscount = 0;
+  for (var td = 0; td < resultWithDiscount.length; td++) {
+    totalPriceWithDiscount += resultWithDiscount[td];
+  }
+
+  var discountPercent = 0;
+  if (totalPrice > 0 && totalPriceWithDiscount > 0 && totalPrice > totalPriceWithDiscount) {
+    discountPercent = Math.round((totalPrice - totalPriceWithDiscount) * 100 / totalPrice);
+  }
+
+  return {
+    rates: result,
+    ratesWithDiscount: resultWithDiscount,
+    totalPrice: totalPrice,
+    totalPriceWithDiscount: totalPriceWithDiscount,
+    discountPercent: discountPercent
+  };
 }
 
 /**
  * Находит видимый тултип «Стоимость проживания» и извлекает из него посуточные цены.
  *
- * @returns {number[]} — массив цен по дням (пустой, если тултип не найден)
+ * @returns {{ rates: number[], ratesWithDiscount: number[], totalPrice: number, totalPriceWithDiscount: number, discountPercent: number }} — данные о ценах и скидке
  */
 function parseDailyRatesFromTooltip() {
   var tooltips = document.querySelectorAll('[data-tid="Tooltip__content"]');
@@ -1079,7 +1126,50 @@ function parseDailyRatesFromTooltip() {
       return parseDailyRatesFromElement(tooltip);
     }
   }
-  return [];
+  return { rates: [], ratesWithDiscount: [], totalPrice: 0, totalPriceWithDiscount: 0, discountPercent: 0 };
+}
+
+/**
+ * Извлекает процент скидки из тултипа «Стоимость проживания».
+ * Ищет блок «Скидка» с процентом (например, «5%»).
+ *
+ * @returns {number} — процент скидки (0, если скидка не найдена)
+ */
+function parseDiscountFromTooltip() {
+  var tooltips = document.querySelectorAll('[data-tid="Tooltip__content"]');
+  for (var i = 0; i < tooltips.length; i++) {
+    var tooltip = tooltips[i];
+    var text = tooltip.textContent || '';
+    if (text.indexOf('Стоимость проживания') === -1 && text.indexOf('Ночь') === -1) {
+      continue;
+    }
+
+    // Ищем блок со скидкой: «Скидка» и рядом процент
+    var discountLabel = findElementByTextContains(tooltip, 'Скидка');
+    if (discountLabel) {
+      // Поднимаемся вверх и ищем элемент с процентом (%)
+      var parent = discountLabel.parentElement;
+      for (var up = 0; up < 6; up++) {
+        if (!parent) break;
+        var percentMatch = parent.textContent.match(/(\d+)\s*%/);
+        if (percentMatch) {
+          return parseInt(percentMatch[1], 10);
+        }
+        parent = parent.parentElement;
+      }
+    }
+
+    // Альтернативный поиск: ищем элемент с title="X%" или текстом «X%»
+    var percentElements = tooltip.querySelectorAll('[title*="%"]');
+    for (var j = 0; j < percentElements.length; j++) {
+      var title = percentElements[j].getAttribute('title') || '';
+      var m = title.match(/(\d+)\s*%/);
+      if (m) {
+        return parseInt(m[1], 10);
+      }
+    }
+  }
+  return 0;
 }
 
 /**
