@@ -69,7 +69,7 @@ function generateInvoicePDF(bookingData, hotelDetails, options) {
     } else if (tooltipDiscountPercent > 0) {
       // Галочка включена И есть скидка из тултипа → суммируем скидки от суммы ДО скидки
       // Сумма скидок: baseDiscountPercent + tooltipDiscountPercent
-      appliedDiscountPercent = Math.min(baseDiscountPercent + tooltipDiscountPercent, 20); // ограничим 20%
+      appliedDiscountPercent = baseDiscountPercent + tooltipDiscountPercent;
       fullPayment = Math.round(totalPriceBeforeTooltipDiscount * (100 - appliedDiscountPercent) / 100);
     } else if (baseDiscountPercent > 0) {
       // Галочка включена И нет скидки из тултипа → базовая скидка
