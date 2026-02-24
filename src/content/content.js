@@ -56,6 +56,8 @@
   var discountedQREnabled = true;
   // Скидка из тултипа (если есть)
   var tooltipDiscountPercent = 0;
+  // Флаг: пользователь вручную включил галочку после авто-выключения
+  var userOverrodeDiscount = false;
 
   // ─── SVG-иконки ─────────────────────────────────────────────
 
@@ -714,8 +716,8 @@
       tooltipDiscountPercent = ratesData.discountPercent;
       console.log('[KonturPrepay] Скидка из тултипа:', tooltipDiscountPercent + '%');
 
-      // Если есть скидка в тултипе — автоматически выключаем галочку (но не блокируем)
-      if (tooltipDiscountPercent > 0) {
+      // Если есть скидка в тултипе И галочка сейчас включена И пользователь не переопределял — выключаем её
+      if (tooltipDiscountPercent > 0 && discountedQREnabled && !userOverrodeDiscount) {
         discountedQREnabled = false;
         console.log('[KonturPrepay] Обнаружена скидка в тултипе — галочка выключена (можно включить вручную)');
       }
@@ -756,11 +758,8 @@
         ? daysForPrepay + ' ' + pluralize(daysForPrepay, 'сутки', 'суток', 'суток')
         : '3 сут.';
 
-      // Добавляем переключатель «Скидочный QR на полную оплату»
+      // Добавляем переключатель «Скидочный QR на полную оплату» (без указания %)
       var toggleChecked = discountedQREnabled ? 'checked' : '';
-      var toggleHint = tooltipDiscountPercent > 0
-        ? ' (скидка ' + tooltipDiscountPercent + '% из тултипа)'
-        : '';
 
       prepayBlock.innerHTML =
         '<span>Предоплата (первые ' + daysLabel + '): ' +
@@ -768,7 +767,7 @@
         '<div class="kontur-discount-qr-toggle" style="margin-top: 8px; display: flex; align-items: center; gap: 8px;">' +
           '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">' +
             '<input type="checkbox" id="' + DISCOUNT_QR_TOGGLE_ID + '" ' + toggleChecked + ' style="cursor: pointer;">' +
-            '<span>Скидочный QR на полную оплату' + toggleHint + '</span>' +
+            '<span>Скидочный QR на полную оплату</span>' +
           '</label>' +
         '</div>';
 
@@ -788,7 +787,14 @@
       if (toggleCheckbox) {
         toggleCheckbox.addEventListener('change', function(e) {
           discountedQREnabled = e.target.checked;
-          console.log('[KonturPrepay] Галочка переключена:', discountedQREnabled);
+          // Если пользователь включил галочку вручную — запоминаем это
+          if (e.target.checked) {
+            userOverrodeDiscount = true;
+            console.log('[KonturPrepay] Галочка включена пользователем (ручное переопределение)');
+          } else {
+            userOverrodeDiscount = false;
+            console.log('[KonturPrepay] Галочка выключена пользователем');
+          }
         });
       }
 
@@ -879,7 +885,8 @@
       cachedTotalPrice = 0;
       cachedTotalPriceWithDiscount = 0;
       tooltipDiscountPercent = 0; // Сбрасываем скидку из тултипа
-      discountedQREnabled = true; // Сбрасываем галочку в значение по умолчанию
+      discountedQREnabled = true; // Сбрасываем галочку при смене бронирования (новый URL)
+      userOverrodeDiscount = false; // Сбрасываем флаг ручного переопределения
       if (tooltipRetryTimer) {
         clearTimeout(tooltipRetryTimer);
         tooltipRetryTimer = null;
