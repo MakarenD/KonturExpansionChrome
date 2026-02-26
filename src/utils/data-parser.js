@@ -265,9 +265,20 @@ function formatDateRu(day, monthIndex, year) {
 
 /** Извлекает тип номера (первый заголовок в деталях). */
 function parseRoomType(container) {
-  // Ищем текст первого заголовка секции деталей номера
-  // Структура: div с текстом типа "Двухкомнатный люкс" перед номером комнаты
-  // Он находится в первом блоке после табов
+  // Приоритет №1: ищем элемент с классом .a6zV6A (контейнер названия категории номера)
+  // Это самый надёжный способ — Контур использует этот класс для заголовка категории
+  var roomTypeElement = container.querySelector('.a6zV6A');
+  if (roomTypeElement) {
+    var t = (roomTypeElement.textContent || '').trim();
+    if (t && t.length > 3 && t.length < 150 &&
+        !t.match(/оплат|внести|гости|информация|плательщик/i) &&
+        t.match(/[а-яА-ЯёЁ]/)) {
+      return t;
+    }
+  }
+
+  // Приоритет №2: ищем по структуре DOM (div с названием категории)
+  // Увеличили лимит длины с 60 до 120 символов для длинных названий
   var allDivs = container.querySelectorAll('div');
   for (var i = 0; i < allDivs.length; i++) {
     var div = allDivs[i];
@@ -275,7 +286,7 @@ function parseRoomType(container) {
     // Ищем div который содержит ТОЛЬКО название категории
     // (не содержит "Оплата", номера, дат и т.д.)
     if (div.children.length === 0 || (div.children.length === 1 && div.children[0].tagName === 'SPAN')) {
-      if (t && t.length > 3 && t.length < 60 &&
+      if (t && t.length > 3 && t.length < 120 &&
           !t.match(/\d/) &&
           !t.match(/оплат|внести|гости|информация|плательщик|комментарий|задачи|услуги|история|расчет|бронирование/i) &&
           !t.match(/₽|руб|долг|тариф|заселить|заселен|подтвержд|отправить|скачать|редактировать|добавить|другие|помощь|настройки/i) &&
@@ -299,12 +310,12 @@ function parseRoomType(container) {
   }
 
   // Фоллбэк: ищем элемент, текст которого похож на название категории
-  // и находится перед номером комнаты
+  // и находится перед номером комнаты. Увеличили лимит с 50 до 100 символов
   var spans = container.querySelectorAll('span');
   for (var j = 0; j < spans.length; j++) {
     var span = spans[j];
     var st = (span.textContent || '').trim();
-    if (st && st.length > 5 && st.length < 50 &&
+    if (st && st.length > 5 && st.length < 100 &&
         !st.match(/\d/) &&
         !st.match(/оплат|внести/i) &&
         st.match(/номер|люкс|стандарт|комфорт|эконом|студия|сюит|апартамент|полулюкс|двух|одно|трёх|четырёх|семейн|делюкс/i)) {
