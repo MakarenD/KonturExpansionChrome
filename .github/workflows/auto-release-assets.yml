@@ -18,8 +18,8 @@ jobs:
       - name: Get release info
         id: release_info
         run: |
-          echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-          echo "upload_url=${{ github.event.release.upload_url }}" >> $GITHUB_OUTPUT
+          echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+          echo "upload_url=${{ github.event.release.upload_url }}" >> $GITHUB_ENV
 
       - name: Create release directory
         run: |
@@ -35,9 +35,9 @@ jobs:
       - name: Create ZIP archive
         run: |
           cd release-package
-          zip -r ../KonturExpansionChrome-${{ steps.release_info.outputs.tag }}.zip .
+          zip -r ../KonturExpansionChrome-${{ env.tag }}.zip .
           cd ..
-          echo "Archive created: KonturExpansionChrome-${{ steps.release_info.outputs.tag }}.zip"
+          echo "Archive created: KonturExpansionChrome-${{ env.tag }}.zip"
           ls -lh *.zip
 
       - name: Upload ZIP to release
@@ -45,17 +45,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.release_info.outputs.upload_url }}
-          asset_path: ./KonturExpansionChrome-${{ steps.release_info.outputs.tag }}.zip
-          asset_name: KonturExpansionChrome-${{ steps.release_info.outputs.tag }}.zip
+          upload_url: ${{ env.upload_url }}
+          asset_path: ./KonturExpansionChrome-${{ env.tag }}.zip
+          asset_name: KonturExpansionChrome-${{ env.tag }}.zip
           asset_content_type: application/zip
-
-      - name: Upload uncompressed source (optional)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.release_info.outputs.upload_url }}
-          asset_path: ./release-package
-          asset_name: KonturExpansionChrome-${{ steps.release_info.outputs.tag }}
-          asset_content_type: application/x-zip-compressed
