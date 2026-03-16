@@ -183,7 +183,10 @@ function generateConfirmationPDF(bookingData, hotelDetails) {
   y += 5 + gapExtra;
 
   doc.setFontSize(9);
-  y = drawLabelValueCompact(doc, marginLeft, y, 'Категория номера:', bookingData.roomType || '—');
+  // Получаем площадь номера
+  var roomArea = getRoomArea(bookingData.roomType);
+  var areaText = roomArea ? ' (' + roomArea + ' м²)' : '';
+  y = drawLabelValueCompact(doc, marginLeft, y, 'Категория номера:', bookingData.roomType + areaText || '—');
 
   var checkInStr = bookingData.checkIn || '—';
   if (bookingData.checkInTime) {

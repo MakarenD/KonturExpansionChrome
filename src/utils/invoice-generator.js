@@ -147,7 +147,7 @@ function generateInvoicePDF(bookingData, hotelDetails, options) {
   // ─── Таблица с деталями проживания ───────────────────────
 
   doc.setFontSize(8);
-  var tableHeaders = ['Категория номера', 'Даты', 'Ночей', 'Цена/сут.', 'Сумма'];
+  var tableHeaders = ['Категория номера', 'Площадь', 'Даты', 'Ночей', 'Цена/сут.', 'Сумма'];
   var cellPadding = 4;
   var datesStr = bookingData.checkIn + ' - ' + bookingData.checkOut;
   var roomLabelRaw = bookingData.roomType || 'Проживание';
@@ -156,13 +156,18 @@ function generateInvoicePDF(bookingData, hotelDetails, options) {
   // Сумма в таблице — со скидкой из тултипа (как в Контуре)
   var totalStr = formatMoney(totalPriceWithTooltipDiscount);
 
+  // Получаем площадь номера
+  var roomArea = getRoomArea(bookingData.roomType);
+  var areaStr = roomArea ? roomArea + ' м²' : '—';
+
   var colWidths = calcTableColumnWidths(doc, contentWidth, tableHeaders, [
     roomLabelRaw,
+    areaStr,
     datesStr,
     nightsStr,
     rateStr,
     totalStr
-  ], [25, 22, 12, 18, 22]);
+  ], [25, 12, 22, 12, 18, 22]);
 
   var roomLabel = truncateToWidth(doc, roomLabelRaw, colWidths[0] - cellPadding);
 
@@ -188,12 +193,14 @@ function generateInvoicePDF(bookingData, hotelDetails, options) {
   var rowX = tableX + 2;
   doc.text(roomLabel, rowX, y + 5);
   rowX += colWidths[0];
-  doc.text(datesStr, rowX, y + 5);
+  doc.text(areaStr, rowX, y + 5);
   rowX += colWidths[1];
-  doc.text(nightsStr, rowX, y + 5);
+  doc.text(datesStr, rowX, y + 5);
   rowX += colWidths[2];
-  doc.text(rateStr, rowX, y + 5);
+  doc.text(nightsStr, rowX, y + 5);
   rowX += colWidths[3];
+  doc.text(rateStr, rowX, y + 5);
+  rowX += colWidths[4];
   doc.text(totalStr, rowX, y + 5);
   y += 8;
 
