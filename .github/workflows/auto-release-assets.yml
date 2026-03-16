@@ -1,0 +1,61 @@
+name: Auto Release Assets
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get release info
+        id: release_info
+        run: |
+          echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          echo "upload_url=${{ github.event.release.upload_url }}" >> $GITHUB_OUTPUT
+
+      - name: Create release directory
+        run: |
+          mkdir -p release-package
+          cp -r icons release-package/
+          cp -r libs release-package/
+          cp -r src release-package/
+          cp manifest.json release-package/
+          cp update.bat release-package/
+          cp update.ps1 release-package/
+          cp README.md release-package/
+
+      - name: Create ZIP archive
+        run: |
+          cd release-package
+          zip -r ../KonturExpansionChrome-${{ steps.release_info.outputs.tag }}.zip .
+          cd ..
+          echo "Archive created: KonturExpansionChrome-${{ steps.release_info.outputs.tag }}.zip"
+          ls -lh *.zip
+
+      - name: Upload ZIP to release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.release_info.outputs.upload_url }}
+          asset_path: ./KonturExpansionChrome-${{ steps.release_info.outputs.tag }}.zip
+          asset_name: KonturExpansionChrome-${{ steps.release_info.outputs.tag }}.zip
+          asset_content_type: application/zip
+
+      - name: Upload uncompressed source (optional)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.release_info.outputs.upload_url }}
+          asset_path: ./release-package
+          asset_name: KonturExpansionChrome-${{ steps.release_info.outputs.tag }}
+          asset_content_type: application/x-zip-compressed
