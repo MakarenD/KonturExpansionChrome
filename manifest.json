@@ -1,20 +1,23 @@
 {
   "manifest_version": 3,
   "name": "Контур Отель — Счёт и подтверждение",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Формирование и отправка счетов на предоплату и подтверждений бронирования из Контур Отель",
-
-  "permissions": ["storage", "activeTab"],
-
-  "host_permissions": ["https://hotel.kontur.ru/*"],
-
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://hotel.kontur.ru/*"
+  ],
   "background": {
     "service_worker": "src/background/service-worker.js"
   },
-
   "content_scripts": [
     {
-      "matches": ["https://hotel.kontur.ru/*"],
+      "matches": [
+        "https://hotel.kontur.ru/*"
+      ],
       "js": [
         "libs/jspdf.umd.min.js",
         "libs/qrcode.js",
@@ -28,11 +31,12 @@
         "src/utils/email-sender.js",
         "src/content/content.js"
       ],
-      "css": ["src/content/content.css"],
+      "css": [
+        "src/content/content.css"
+      ],
       "run_at": "document_idle"
     }
   ],
-
   "action": {
     "default_popup": "src/popup/popup.html",
     "default_icon": {
@@ -41,7 +45,6 @@
       "128": "icons/icon128.png"
     }
   },
-
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

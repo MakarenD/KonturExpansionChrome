@@ -23,7 +23,7 @@ function measureConfirmationHeight(doc, bookingData, hotelDetails, contentWidth)
   var labelH = 4;
 
   var y = 12;
-  y += 4 + 3.5 + 2.5 + 6;
+  y += 4 + 3.5 + 3.5 + 2.5 + 6;
   y += 5 + 4 + 7;
   y += 5;
   y += labelH;
@@ -124,6 +124,12 @@ function generateConfirmationPDF(bookingData, hotelDetails) {
   y += 3.5;
   doc.text(
     'Тел.: ' + hotelDetails.phone + '    Email: ' + hotelDetails.email,
+    marginLeft,
+    y
+  );
+  y += 3.5 + gapExtra;
+  doc.text(
+    'Номер объекта в едином реестре объектов классификации в сфере туристской индустрии: С232025009727',
     marginLeft,
     y
   );

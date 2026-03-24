@@ -106,6 +106,12 @@ function generateInvoicePDF(bookingData, hotelDetails, options) {
     marginLeft,
     y
   );
+  y += 4;
+  doc.text(
+    'Номер объекта в едином реестре объектов классификации в сфере туристской индустрии: С232025009727',
+    marginLeft,
+    y
+  );
   y += 3;
 
   doc.setDrawColor(200, 200, 200);
