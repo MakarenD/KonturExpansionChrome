@@ -265,20 +265,69 @@ function formatDateRu(day, monthIndex, year) {
 
 /** Извлекает тип номера (первый заголовок в деталях). */
 function parseRoomType(container) {
-  // Приоритет №1: ищем элемент с классом .a6zV6A (контейнер названия категории номера)
-  // Это самый надёжный способ — Контур использует этот класс для заголовка категории
-  var roomTypeElement = container.querySelector('.a6zV6A');
-  if (roomTypeElement) {
-    var t = (roomTypeElement.textContent || '').trim();
-    if (t && t.length > 3 && t.length < 150 &&
-        !t.match(/оплат|внести|гости|информация|плательщик/i) &&
-        t.match(/[а-яА-ЯёЁ]/)) {
+  // Приоритет №1: ищем полное название категории с корпусом в скобках
+  // Ищем паттерны: "(Остров-2)", "(Остров-1)", "(Главный корпус)", "(Коттедж)"
+  var allElements = container.querySelectorAll('*');
+  for (var i = 0; i < allElements.length; i++) {
+    var el = allElements[i];
+    // Проверяем textContent и title атрибут
+    var t = (el.textContent || '').trim();
+    var titleAttr = el.getAttribute('title') || '';
+    
+    // Сначала проверяем title — там может быть полное название
+    if (titleAttr && titleAttr.length > 10 && titleAttr.length < 150 &&
+        titleAttr.match(/\(Остров-[12]\)|\(Главный корпус\)|\(Коттедж\)/) &&
+        titleAttr.match(/[а-яА-ЯёЁ]/)) {
+      console.log('[KonturPrepay] Найдено полное название в title:', titleAttr);
+      return titleAttr;
+    }
+    
+    // Затем проверяем textContent
+    if (t && t.length > 10 && t.length < 150 &&
+        t.match(/\(Остров-[12]\)|\(Главный корпус\)|\(Коттедж\)/) &&
+        t.match(/[а-яА-ЯёЁ]/) &&
+        !t.match(/оплат|внести|гости|информация|плательщик/i)) {
+      // Извлекаем только название категории (до скобки с корпусом включительно)
+      var match = t.match(/^([а-яА-ЯёЁ0-9\s\-\(\)"",.]+\(Остров-[12]\)|[а-яА-ЯёЁ0-9\s\-\(\)"",.]+\(Главный корпус\)|[а-яА-ЯёЁ0-9\s\-\(\)"",.]+\(Коттедж\))/);
+      if (match) {
+        console.log('[KonturPrepay] Найдено полное название в textContent:', match[1]);
+        return match[1];
+      }
+      console.log('[KonturPrepay] Найдено название в textContent (полный текст):', t);
       return t;
     }
   }
 
-  // Приоритет №2: ищем по структуре DOM (div с названием категории)
-  // Увеличили лимит длины с 60 до 120 символов для длинных названий
+  // Приоритет №2: ищем элемент с классом .a6zV6A (контейнер названия категории номера)
+  // Это самый надёжный способ — Контур использует этот класс для заголовка категории
+  var roomTypeElement = container.querySelector('.a6zV6A');
+  if (roomTypeElement) {
+    var t = (roomTypeElement.textContent || '').trim();
+    var titleAttr = roomTypeElement.getAttribute('title') || '';
+    
+    // Проверяем title атрибут
+    if (titleAttr && titleAttr.length > 10 && titleAttr.length < 150 &&
+        titleAttr.match(/\(Остров-[12]\)|\(Главный корпус\)|\(Коттедж\)/)) {
+      console.log('[KonturPrepay] Найдено полное название в title .a6zV6A:', titleAttr);
+      return titleAttr;
+    }
+    
+    if (t && t.length > 3 && t.length < 150 &&
+        !t.match(/оплат|внести|гости|информация|плательщик/i) &&
+        t.match(/[а-яА-ЯёЁ]/)) {
+      // Извлекаем только название категории (до скобки с корпусом включительно)
+      var match = t.match(/^([а-яА-ЯёЁ0-9\s\-\(\)"",.]+\(Остров-[12]\)|[а-яА-ЯёЁ0-9\s\-\(\)"",.]+\(Главный корпус\)|[а-яА-ЯёЁ0-9\s\-\(\)"",.]+\(Коттедж\))/);
+      if (match) {
+        console.log('[KonturPrepay] Найдено название в .a6zV6A (обрезанное):', match[1]);
+        return match[1];
+      }
+      console.log('[KonturPrepay] Найдено название в .a6zV6A:', t);
+      return t;
+    }
+  }
+
+  // Приоритет №3: ищем по структуре DOM (div с названием категории)
+  // Увеличили лимит длины с 60 до 150 символов для длинных названий с корпусом
   var allDivs = container.querySelectorAll('div');
   for (var i = 0; i < allDivs.length; i++) {
     var div = allDivs[i];
@@ -286,7 +335,7 @@ function parseRoomType(container) {
     // Ищем div который содержит ТОЛЬКО название категории
     // (не содержит "Оплата", номера, дат и т.д.)
     if (div.children.length === 0 || (div.children.length === 1 && div.children[0].tagName === 'SPAN')) {
-      if (t && t.length > 3 && t.length < 120 &&
+      if (t && t.length > 3 && t.length < 150 &&
           !t.match(/\d/) &&
           !t.match(/оплат|внести|гости|информация|плательщик|комментарий|задачи|услуги|история|расчет|бронирование/i) &&
           !t.match(/₽|руб|долг|тариф|заселить|заселен|подтвержд|отправить|скачать|редактировать|добавить|другие|помощь|настройки/i) &&
@@ -302,6 +351,7 @@ function parseRoomType(container) {
           }
           var ancestorText = ancestor.textContent || '';
           if (ancestorText.match(/\b\d{1,3}\b/) && ancestorText.length < 500) {
+            console.log('[KonturPrepay] Найдено название в структуре DOM:', t);
             return t;
           }
         }
@@ -310,19 +360,21 @@ function parseRoomType(container) {
   }
 
   // Фоллбэк: ищем элемент, текст которого похож на название категории
-  // и находится перед номером комнаты. Увеличили лимит с 50 до 100 символов
+  // и находится перед номером комнаты. Увеличили лимит с 100 до 150 символов
   var spans = container.querySelectorAll('span');
   for (var j = 0; j < spans.length; j++) {
     var span = spans[j];
     var st = (span.textContent || '').trim();
-    if (st && st.length > 5 && st.length < 100 &&
+    if (st && st.length > 5 && st.length < 150 &&
         !st.match(/\d/) &&
         !st.match(/оплат|внести/i) &&
         st.match(/номер|люкс|стандарт|комфорт|эконом|студия|сюит|апартамент|полулюкс|двух|одно|трёх|четырёх|семейн|делюкс/i)) {
+      console.log('[KonturPrepay] Найдено название в фоллбэке:', st);
       return st;
     }
   }
 
+  console.log('[KonturPrepay] Не удалось найти название категории номера');
   return null;
 }
 

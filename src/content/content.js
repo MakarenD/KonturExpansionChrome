@@ -1035,68 +1035,99 @@
    * Открывает страницу релиза на GitHub для скачивания.
    */
   function openReleasePage(release) {
+    // Определяем платформу
+    var isMac = navigator.userAgent.indexOf('Mac') !== -1;
+    var isWindows = navigator.userAgent.indexOf('Windows') !== -1;
+    
     var notification = document.getElementById('kontur-update-notification');
     if (notification) {
-      notification.innerHTML =
-        '<div class="kontur-update-notification__header">' +
-          '<span class="kontur-update-notification__icon">📥</span>' +
-          '<span class="kontur-update-notification__title">Как обновить</span>' +
-        '</div>' +
-        '<div class="kontur-update-notification__steps">' +
-          '<div class="kontur-update-notification__step">' +
-            '<span class="kontur-update-notification__step-num">1</span>' +
-            '<span>Откройте проводник и перейдите в папку:</span>' +
+      if (isMac) {
+        // Инструкция для macOS
+        notification.innerHTML =
+          '<div class="kontur-update-notification__header">' +
+            '<span class="kontur-update-notification__icon">📥</span>' +
+            '<span class="kontur-update-notification__title">Как обновить на macOS</span>' +
           '</div>' +
-          '<div class="kontur-update-notification__path">' +
-            '<code id="kontur-install-path">C:\\KonturExpansionChrome</code>' +
-            '<button class="kontur-update-notification__copy-btn" id="kontur-copy-path-btn" title="Копировать путь">' +
-              '📋' +
+          '<div class="kontur-update-notification__steps">' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">1</span>' +
+              '<span>Откройте Finder и перейдите в папку с расширением:</span>' +
+            '</div>' +
+            '<div class="kontur-update-notification__path">' +
+              '<code id="kontur-install-path-mac">Папка где лежит manifest.json</code>' +
+            '</div>' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">2</span>' +
+              '<span>Дважды кликните по <strong>run-update.sh</strong></span>' +
+            '</div>' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">3</span>' +
+              '<span>Введите пароль администратора когда потребуется</span>' +
+            '</div>' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">4</span>' +
+              '<span>Дождитесь завершения (обновление установится автоматически)</span>' +
+            '</div>' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">5</span>' +
+              '<span><strong>Перезапустите Chrome</strong> для применения обновлений</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="kontur-update-notification__actions">' +
+            '<button class="kontur-update-notification__btn kontur-update-notification__btn--primary" id="kontur-update-github-btn">' +
+              '🌐 Открыть GitHub Releases' +
             '</button>' +
-          '</div>' +
-          '<div class="kontur-update-notification__step">' +
-            '<span class="kontur-update-notification__step-num">2</span>' +
-            '<span>Запустите <strong>update.bat</strong></span>' +
-          '</div>' +
-          '<div class="kontur-update-notification__step">' +
-            '<span class="kontur-update-notification__step-num">3</span>' +
-            '<span>Подтвердите запуск от имени администратора</span>' +
-          '</div>' +
-          '<div class="kontur-update-notification__step">' +
-            '<span class="kontur-update-notification__step-num">4</span>' +
-            '<span>Дождитесь завершения (обновление установится автоматически)</span>' +
-          '</div>' +
-          '<div class="kontur-update-notification__step">' +
-            '<span class="kontur-update-notification__step-num">5</span>' +
-            '<span><strong>Перезапустите Chrome</strong> для применения обновлений</span>' +
-          '</div>' +
-        '</div>' +
-        '<div class="kontur-update-notification__actions">' +
-          '<button class="kontur-update-notification__btn kontur-update-notification__btn--primary" id="kontur-update-github-btn">' +
-            '🌐 Открыть GitHub Releases' +
-          '</button>' +
-        '</div>';
+          '</div>';
 
-      // Кнопка копирования пути
-      document.getElementById('kontur-copy-path-btn').addEventListener('click', function () {
-        var pathText = 'C:\\KonturExpansionChrome';
-        navigator.clipboard.writeText(pathText).then(function () {
-          var btn = document.getElementById('kontur-copy-path-btn');
-          btn.textContent = '✅';
-          btn.title = 'Скопировано!';
-          setTimeout(function () {
-            btn.textContent = '📋';
-            btn.title = 'Копировать путь';
-          }, 2000);
-        }).catch(function () {
-          // Fallback для старых браузеров
-          var textArea = document.createElement('textarea');
-          textArea.value = pathText;
-          textArea.style.position = 'fixed';
-          textArea.style.left = '-9999px';
-          document.body.appendChild(textArea);
-          textArea.select();
-          try {
-            document.execCommand('copy');
+        document.getElementById('kontur-update-github-btn').addEventListener('click', function () {
+          var releaseUrl = 'https://github.com/' + GITHUB_REPO_OWNER + '/' + GITHUB_REPO_NAME + '/releases/latest';
+          window.open(releaseUrl, '_blank');
+        });
+      } else {
+        // Инструкция для Windows (по умолчанию)
+        notification.innerHTML =
+          '<div class="kontur-update-notification__header">' +
+            '<span class="kontur-update-notification__icon">📥</span>' +
+            '<span class="kontur-update-notification__title">Как обновить</span>' +
+          '</div>' +
+          '<div class="kontur-update-notification__steps">' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">1</span>' +
+              '<span>Откройте проводник и перейдите в папку:</span>' +
+            '</div>' +
+            '<div class="kontur-update-notification__path">' +
+              '<code id="kontur-install-path">C:\\KonturExpansionChrome</code>' +
+              '<button class="kontur-update-notification__copy-btn" id="kontur-copy-path-btn" title="Копировать путь">' +
+                '📋' +
+              '</button>' +
+            '</div>' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">2</span>' +
+              '<span>Запустите <strong>update.bat</strong></span>' +
+            '</div>' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">3</span>' +
+              '<span>Подтвердите запуск от имени администратора</span>' +
+            '</div>' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">4</span>' +
+              '<span>Дождитесь завершения (обновление установится автоматически)</span>' +
+            '</div>' +
+            '<div class="kontur-update-notification__step">' +
+              '<span class="kontur-update-notification__step-num">5</span>' +
+              '<span><strong>Перезапустите Chrome</strong> для применения обновлений</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="kontur-update-notification__actions">' +
+            '<button class="kontur-update-notification__btn kontur-update-notification__btn--primary" id="kontur-update-github-btn">' +
+              '🌐 Открыть GitHub Releases' +
+            '</button>' +
+          '</div>';
+
+        // Кнопка копирования пути
+        document.getElementById('kontur-copy-path-btn').addEventListener('click', function () {
+          var pathText = 'C:\\KonturExpansionChrome';
+          navigator.clipboard.writeText(pathText).then(function () {
             var btn = document.getElementById('kontur-copy-path-btn');
             btn.textContent = '✅';
             btn.title = 'Скопировано!';
@@ -1104,18 +1135,36 @@
               btn.textContent = '📋';
               btn.title = 'Копировать путь';
             }, 2000);
-          } catch (err) {
-            console.error('Не удалось скопировать:', err);
-          }
-          document.body.removeChild(textArea);
+          }).catch(function () {
+            // Fallback для старых браузеров
+            var textArea = document.createElement('textarea');
+            textArea.value = pathText;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-9999px';
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+              document.execCommand('copy');
+              var btn = document.getElementById('kontur-copy-path-btn');
+              btn.textContent = '✅';
+              btn.title = 'Скопировано!';
+              setTimeout(function () {
+                btn.textContent = '📋';
+                btn.title = 'Копировать путь';
+              }, 2000);
+            } catch (err) {
+              console.error('Не удалось скопировать:', err);
+            }
+            document.body.removeChild(textArea);
+          });
         });
-      });
 
-      // Кнопка GitHub
-      document.getElementById('kontur-update-github-btn').addEventListener('click', function () {
-        var releaseUrl = 'https://github.com/' + GITHUB_REPO_OWNER + '/' + GITHUB_REPO_NAME + '/releases/latest';
-        window.open(releaseUrl, '_blank');
-      });
+        // Кнопка GitHub
+        document.getElementById('kontur-update-github-btn').addEventListener('click', function () {
+          var releaseUrl = 'https://github.com/' + GITHUB_REPO_OWNER + '/' + GITHUB_REPO_NAME + '/releases/latest';
+          window.open(releaseUrl, '_blank');
+        });
+      }
     }
   }
 

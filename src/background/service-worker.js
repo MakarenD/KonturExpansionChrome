@@ -21,46 +21,83 @@ const GITHUB_REPO_NAME = 'KonturExpansionChrome';
 const UPDATE_CHECK_INTERVAL = 1 * 60 * 1000; // 1 минута
 
 /**
+ * Определяет операционную систему пользователя.
+ * @returns {Promise<{os: string, isMac: boolean, isWindows: boolean}>}
+ */
+async function getPlatformInfo() {
+  try {
+    // chrome.runtime.getPlatformInfo доступен только в service worker
+    var platformInfo = await chrome.runtime.getPlatformInfo();
+    var os = platformInfo.os; // 'mac', 'win', 'linux', 'openbsd', 'android'
+    
+    return {
+      os: os,
+      isMac: os === 'mac',
+      isWindows: os === 'win',
+      isLinux: os === 'linux'
+    };
+  } catch (error) {
+    console.warn('[KonturUpdate] Не удалось определить платформу:', error);
+    // Фоллбэк на user agent
+    var userAgent = navigator.userAgent;
+    var isMac = /Macintosh|MacIntel|MacPPC|Mac68K/.test(userAgent);
+    var isWindows = /Windows NT/.test(userAgent);
+    
+    return {
+      os: isMac ? 'mac' : isWindows ? 'win' : 'unknown',
+      isMac: isMac,
+      isWindows: isWindows,
+      isLinux: !isMac && !isWindows
+    };
+  }
+}
+
+/**
  * Проверяет наличие новой версии на GitHub Releases.
- * @returns {Promise<{available: boolean, release?: Object, localVersion?: string}>}
+ * @returns {Promise<{available: boolean, release?: Object, localVersion?: string, platform?: Object}>}
  */
 async function checkForUpdates() {
   try {
     // Получаем локальную версию из manifest.json через chrome.runtime
     var localVersion = chrome.runtime.getManifest().version;
     
+    // Определяем платформу
+    var platform = await getPlatformInfo();
+
     // Запрашиваем последний релиз с GitHub API
     var response = await fetch(
       `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases/latest`,
       { headers: { 'Accept': 'application/vnd.github.v3+json' } }
     );
-    
+
     if (!response.ok) {
       console.error('[KonturUpdate] Ошибка GitHub API:', response.status);
       return { available: false, localVersion: localVersion };
     }
-    
+
     var release = await response.json();
     var remoteVersion = release.tag_name.replace(/^v/, '');
-    
+
     // Сравниваем версии
     if (compareVersions(localVersion, remoteVersion) < 0) {
       console.log('[KonturUpdate] Доступна новая версия:', remoteVersion);
       return {
         available: true,
         localVersion: localVersion,
+        platform: platform,
         release: {
           version: remoteVersion,
           tagName: release.tag_name,
           name: release.name,
           publishedAt: release.published_at,
           body: release.body,
-          zipUrl: release.zipball_url
+          zipUrl: release.zipball_url,
+          htmlUrl: release.html_url
         }
       };
     }
-    
-    return { available: false, localVersion: localVersion };
+
+    return { available: false, localVersion: localVersion, platform: platform };
   }
   catch (error) {
     console.error('[KonturUpdate] Ошибка проверки обновлений:', error);

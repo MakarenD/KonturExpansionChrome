@@ -30,6 +30,9 @@ jobs:
           cp manifest.json release-package/
           cp update.bat release-package/
           cp update.ps1 release-package/
+          cp update.sh release-package/
+          cp run-update.sh release-package/
+          cp run-update.command release-package/
           cp README.md release-package/
 
       - name: Create ZIP archive

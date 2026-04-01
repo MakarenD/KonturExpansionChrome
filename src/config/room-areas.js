@@ -27,7 +27,7 @@ var ROOM_AREAS = {
   'Трехместный номер с доп. местом (Остров-2)': 35,
   'Двухместный номер с видом на море и доп. местом (Остров-2)': 36,
   'Двухместный номер с доп. местом (Остров-2)': 30,
-  'Двухместный номер с доп. местом и выходом к бассейну (Остров-2)': 30,
+  'Двухместный номер с доп.местом и выходом к бассейну (Остров-2)': 30,
 
   // Коттедж
   'Двухкомнатный двухместный номер "Комфорт" (Коттедж)': 30,
@@ -43,23 +43,42 @@ var ROOM_AREAS = {
  */
 function getRoomArea(roomType) {
   if (!roomType) {
+    console.log('[KonturPrepay] getRoomArea: roomType пустой');
     return null;
   }
 
-  // Точное совпадение
+  console.log('[KonturPrepay] getRoomArea: ищем площадь для:', roomType);
+
+  // Нормализуем текст: убираем лишние пробелы после точек в сокращениях
+  // "доп. местом" → "доп.местом", "кв. м" → "кв.м" и т.д.
+  var normalizedRoomType = roomType.replace(/(\w)\.\s+(\w)/g, '$1.$2');
+
+  // Точное совпадение с нормализованным названием
+  if (ROOM_AREAS.hasOwnProperty(normalizedRoomType)) {
+    console.log('[KonturPrepay] getRoomArea: найдено точное совпадение:', ROOM_AREAS[normalizedRoomType]);
+    return ROOM_AREAS[normalizedRoomType];
+  }
+
+  // Точное совпадение с оригинальным названием
   if (ROOM_AREAS.hasOwnProperty(roomType)) {
+    console.log('[KonturPrepay] getRoomArea: найдено точное совпадение (оригинал):', ROOM_AREAS[roomType]);
     return ROOM_AREAS[roomType];
   }
 
   // Частичное совпадение (если название немного отличается)
   for (var key in ROOM_AREAS) {
     if (ROOM_AREAS.hasOwnProperty(key)) {
+      // Нормализуем ключ для сравнения
+      var normalizedKey = key.replace(/(\w)\.\s+(\w)/g, '$1.$2');
+      
       // Проверяем содержит ли roomType ключ или ключ содержит roomType
-      if (roomType.indexOf(key) !== -1 || key.indexOf(roomType) !== -1) {
+      if (normalizedRoomType.indexOf(normalizedKey) !== -1 || normalizedKey.indexOf(normalizedRoomType) !== -1) {
+        console.log('[KonturPrepay] getRoomArea: найдено частичное совпадение с "', key, '":', ROOM_AREAS[key]);
         return ROOM_AREAS[key];
       }
     }
   }
 
+  console.log('[KonturPrepay] getRoomArea: не найдено совпадений. Доступные ключи:', Object.keys(ROOM_AREAS));
   return null;
 }
