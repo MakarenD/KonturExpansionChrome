@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Шахматка — Загрузка номеров</title>
+    <script src="xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-hover: #242836;
+            --border: #2a2e3a;
+            --text: #e4e6ed;
+            --text-dim: #8b8fa3;
+            --accent: #6c5ce7;
+            --accent-light: #a29bfe;
+            --booked-bg: rgba(108, 92, 231, 0.15);
+            --booked-border: #6c5ce7;
+            --free-bg: rgba(0, 206, 158, 0.08);
+            --free-color: #00ce9e;
+            --warning: #fdcb6e;
+            --danger: #ff6b6b;
+            --success: #00ce9e;
+            --weekend: #e17055;
+            --radius: 12px;
+            --radius-sm: 8px;
+            --shadow: 0 4px 24px rgba(0,0,0,0.3);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+
+        /* ===== UPLOAD SCREEN ===== */
+        #upload-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 40px;
+        }
+        #upload-screen .logo {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+        #upload-screen h1 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--accent-light), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        #upload-screen .subtitle {
+            color: var(--text-dim);
+            font-size: 16px;
+            margin-bottom: 40px;
+        }
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 60px 80px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: var(--bg-card);
+            max-width: 500px;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--accent);
+            background: var(--bg-hover);
+            box-shadow: 0 0 40px rgba(108, 92, 231, 0.1);
+            transform: translateY(-2px);
+        }
+        .upload-zone .icon { font-size: 48px; margin-bottom: 16px; }
+        .upload-zone p { color: var(--text-dim); margin-bottom: 20px; }
+        .upload-zone input[type="file"] { display: none; }
+        .upload-zone .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--accent), #5b4cdb);
+            color: white;
+            padding: 12px 32px;
+            border-radius: var(--radius-sm);
+            font-size: 15px;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .upload-zone .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(108, 92, 231, 0.4);
+        }
+
+        /* ===== LOADING ===== */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 80px;
+        }
+        .loading.active { display: flex; flex-direction: column; align-items: center; }
+        .spinner {
+            width: 48px; height: 48px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ===== HEADER ===== */
+        .header {
+            position: sticky;
+            top: 0;
+            background: rgba(15, 17, 23, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 32px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            flex: 1;
+        }
+        .header .badge {
+            background: var(--accent);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .btn-back {
+            background: var(--bg-hover);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .btn-back:hover { background: var(--border); }
+
+        /* ===== STATS BAR ===== */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            padding: 20px 32px;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 16px 20px;
+        }
+        .stat-card .label {
+            font-size: 12px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .stat-card .value.accent { color: var(--accent-light); }
+        .stat-card .value.success { color: var(--success); }
+        .stat-card .value.warning { color: var(--warning); }
+
+        /* ===== NAV TABS ===== */
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+            padding: 0 32px 16px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .nav-tabs::-webkit-scrollbar { display: none; }
+        .nav-tab {
+            padding: 10px 20px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            cursor: pointer;
+            white-space: nowrap;
+            font-size: 14px;
+            text-decoration: none;
+            color: var(--text-dim);
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+        .nav-tab:hover { background: var(--bg-hover); color: var(--text); }
+        .nav-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+        /* ===== BUILDING SECTION ===== */
+        .building-section {
+            padding: 0 32px 40px;
+        }
+        .building-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--accent);
+        }
+        .building-header h2 {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .building-header .count {
+            background: var(--accent);
+            color: white;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+        }
+
+        /* ===== CATEGORY GROUP ===== */
+        .category-group {
+            margin-bottom: 32px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+        .category-header {
+            padding: 16px 20px;
+            background: var(--bg-hover);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .category-header h3 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .category-stats {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .category-stat {
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+        .category-stat span { font-weight: 600; }
+        .category-stat .occupied span { color: var(--warning); }
+        .category-stat .free span { color: var(--success); }
+        .category-stat .pct span { color: var(--accent-light); }
+
+        .occupancy-bar {
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            margin: 0 20px;
+            overflow: hidden;
+        }
+        .occupancy-bar .fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--accent-light));
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+
+        /* ===== CHESS TABLE ===== */
+        .chess-wrapper {
+            overflow-x: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+        .chess-wrapper::-webkit-scrollbar { height: 8px; }
+        .chess-wrapper::-webkit-scrollbar-track { background: transparent; }
+        .chess-wrapper::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+        table.chess {
+            border-collapse: collapse;
+            font-size: 12px;
+            width: max-content;
+        }
+        table.chess th, table.chess td {
+            border: 1px solid var(--border);
+            padding: 4px 6px;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        /* Room number sticky column */
+        table.chess th.room-header {
+            background: var(--bg-hover);
+            color: var(--text);
+            font-weight: 600;
+            min-width: 70px;
+            text-align: left;
+            padding: 10px 14px;
+            font-size: 12px;
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            border-right: 2px solid var(--border);
+        }
+        table.chess td.room-cell {
+            background: var(--bg-hover);
+            font-weight: 600;
+            text-align: left;
+            padding: 10px 14px;
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            min-width: 70px;
+            border-right: 2px solid var(--border);
+            font-size: 13px;
+        }
+
+        /* Date headers */
+        table.chess th.date-header {
+            background: var(--bg-hover);
+            color: var(--text-dim);
+            font-weight: 400;
+            min-width: 30px;
+            width: 30px;
+            font-size: 10px;
+            padding: 4px 2px;
+        }
+        table.chess th.date-header.weekend {
+            color: var(--weekend);
+            background: rgba(225, 112, 85, 0.1);
+        }
+        table.chess th.day-of-week {
+            font-size: 9px;
+            color: var(--text-dim);
+            background: var(--bg);
+            min-width: 30px;
+            width: 30px;
+            padding: 2px 2px;
+        }
+        table.chess th.day-of-week.weekend {
+            color: var(--weekend);
+        }
+
+        /* Month separator */
+        table.chess th.month-label {
+            background: var(--accent);
+            color: white;
+            font-weight: 600;
+            font-size: 11px;
+            padding: 6px 10px;
+            text-align: center;
+            min-width: auto;
+            width: auto;
+        }
+
+        /* Booking cells */
+        table.chess td.booked {
+            background: var(--booked-bg);
+            border-color: rgba(108, 92, 231, 0.3);
+        }
+        table.chess td.booked[data-booking]:hover {
+            background: rgba(108, 92, 231, 0.3);
+            outline: 2px solid var(--accent);
+            outline-offset: -2px;
+        }
+        table.chess td.booked-merged {
+            background: var(--booked-bg);
+            border-left: 2px solid var(--accent);
+            border-right: 2px solid var(--accent);
+        }
+        table.chess td.free {
+            background: var(--free-bg);
+        }
+
+        /* Guest name in cell */
+        table.chess td.guest-cell {
+            text-align: left;
+            padding: 6px 10px;
+            font-size: 11px;
+            line-height: 1.3;
+            max-width: 250px;
+            overflow: hidden;
+        }
+        .guest-name-text {
+            color: var(--text);
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .guest-meta {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 3px;
+            flex-wrap: nowrap;
+        }
+        .guest-booking-id {
+            font-size: 9px;
+            color: var(--accent-light);
+            background: rgba(108, 92, 231, 0.2);
+            padding: 1px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+        .guest-guests-count {
+            font-size: 9px;
+            color: var(--warning);
+            white-space: nowrap;
+        }
+
+        /* Free cell indicator */
+        table.chess td.free::after {
+            content: '·';
+            color: var(--success);
+            font-size: 18px;
+            opacity: 0.5;
+        }
+
+        /* Summary columns at end of row */
+        table.chess th.summary-header {
+            background: var(--accent);
+            color: white;
+            font-weight: 600;
+            font-size: 12px;
+            padding: 8px 14px;
+            min-width: 70px;
+            width: 70px;
+            border-left: 3px solid rgba(255,255,255,0.2);
+        }
+        table.chess td.summary-cell {
+            background: var(--bg-hover);
+            font-weight: 600;
+            font-size: 14px;
+            text-align: center;
+            padding: 10px 14px;
+            min-width: 70px;
+            width: 70px;
+            border-left: 3px solid var(--border);
+            color: var(--accent-light);
+        }
+
+        /* ===== LEGEND ===== */
+        .legend {
+            display: flex;
+            gap: 20px;
+            padding: 12px 20px;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-dim);
+            align-items: center;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 3px;
+        }
+        .legend-dot.booked { background: var(--accent); opacity: 0.5; }
+        .legend-dot.free { background: var(--success); opacity: 0.3; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--accent);
+            color: white;
+            padding: 12px 24px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 8px 32px rgba(108, 92, 231, 0.4);
+            z-index: 9999;
+            opacity: 0;
+            transition: all 0.3s ease;
+            pointer-events: none;
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        /* ===== PRINT ===== */
+        @media print {
+            body { background: white; color: black; }
+            .header, .nav-tabs, .stats-bar { display: none; }
+            .building-section { page-break-inside: avoid; }
+            .category-group { break-inside: avoid; }
+            table.chess { font-size: 8px; }
+            table.chess td.room-cell, table.chess th.room-header { background: #eee !important; }
+            table.chess td.booked { background: #fff3cd !important; }
+            table.chess td.free { background: #d4edda !important; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Upload Screen -->
+<div id="upload-screen">
+    <div class="logo">📊</div>
+    <h1>Шахматка загрузки</h1>
+    <p class="subtitle">Визуализация отчёта Контур Отеля</p>
+    <div class="upload-zone" id="drop-zone">
+        <div class="icon">📁</div>
+        <p>Перетащите Excel-файл сюда</p>
+        <label class="btn">
+            Выбрать файл
+            <input type="file" id="file-input" accept=".xlsx,.xls">
+        </label>
+    </div>
+</div>
+
+<!-- Loading -->
+<div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div>Обработка отчёта...</div>
+</div>
+
+<!-- Result Screen -->
+<div id="result-screen" style="display:none;">
+    <div class="header">
+        <button class="btn-back" onclick="goBack()">← Назад</button>
+        <h1>📊 Шахматка загрузки</h1>
+        <div class="badge" id="report-badge"></div>
+    </div>
+    <div class="stats-bar" id="stats-bar"></div>
+    <div class="nav-tabs" id="nav-tabs"></div>
+    <div id="chess-container"></div>
+    <div id="toast" class="toast"></div>
+</div>
+
+<script>
+// ====== PARSING ======
+
+function parseDate(str) {
+    if (!str || str === '-') return null;
+    const s = String(str).trim();
+    // Could be "30.05.2026 15:00" or a Date object from xlsx
+    if (s.includes('.')) {
+        const parts = s.split(' ');
+        const dateParts = parts[0].split('.');
+        return new Date(dateParts[2], dateParts[1] - 1, dateParts[0]);
+    }
+    return null;
+}
+
+function formatDateShort(date) {
+    return date.getDate().toString().padStart(2, '0');
+}
+
+function formatDateFull(date) {
+    const d = date.getDate().toString().padStart(2, '0');
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    return `${d}.${m}`;
+}
+
+function formatDateLong(date) {
+    const d = date.getDate().toString().padStart(2, '0');
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}.${m}.${y}`;
+}
+
+function isWeekend(date) {
+    const day = date.getDay();
+    return day === 0 || day === 6;
+}
+
+function dayOfWeek(date) {
+    const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    return days[date.getDay()];
+}
+
+function monthName(date) {
+    const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+        'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+    return months[date.getMonth()];
+}
+
+function monthNameShort(date) {
+    const months = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн',
+        'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+    return months[date.getMonth()];
+}
+
+function parseBuilding(categoryName) {
+    const match = categoryName.match(/\(([^)]+)\)/);
+    return match ? match[1] : 'Прочее';
+}
+
+function parseExcel(data) {
+    const workbook = XLSX.read(data, { type: 'array' });
+
+    // Collect dates from sheet names
+    const allDates = [];
+    for (const sheetName of workbook.SheetNames) {
+        const d = parseDate(sheetName);
+        if (d) allDates.push(d);
+    }
+    allDates.sort((a, b) => a - b);
+
+    // Per-date, per-category totals (from "Всего:" rows)
+    // dateKey -> category -> {occupiedPlaces, freeMain, freeExtra, totalRooms}
+    const dailyCategoryStats = {};
+
+    // Room data: building -> category -> roomNumber -> {totalMain, totalExtra, dailyBookings}
+    const buildings = {};
+    const roomNumbersList = new Set();
+
+    for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+        let currentCategory = '';
+        let currentHeaderRow = -1;
+        const dateKey = allDates.find(d => parseDate(sheetName) && d.toISOString().split('T')[0] === parseDate(sheetName).toISOString().split('T')[0])?.toISOString().split('T')[0];
+
+        if (!dailyCategoryStats[dateKey]) dailyCategoryStats[dateKey] = {};
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length === 0) continue;
+
+            // Category row
+            if (row[0] === 'Категория:') {
+                currentCategory = row[1] || '';
+                currentHeaderRow = -1;
+                continue;
+            }
+
+            // Header row
+            if (row[0] === 'Номер' && row[5] === 'Бронирование') {
+                currentHeaderRow = i;
+                continue;
+            }
+
+            // "Всего:" row
+            if (row[0] === 'Всего:' && currentCategory) {
+                dailyCategoryStats[dateKey][currentCategory] = {
+                    occupiedPlaces: parseInt(row[1]) || 0,
+                    freeMain: parseInt(row[2]) || 0,
+                    freeExtra: parseInt(row[3]) || 0
+                };
+                continue;
+            }
+
+            if (currentHeaderRow === -1 || !currentCategory) continue;
+
+            const roomNumber = String(row[0] || '').trim();
+            if (!roomNumber || roomNumber === 'Всего:' || roomNumber === 'Итого:') continue;
+            // Skip if it's not a room number (could be text)
+            if (isNaN(parseInt(roomNumber)) && !roomNumber.includes('к')) continue;
+
+            const occupiedPlaces = parseInt(row[1]) || 0;
+            const freeMain = parseInt(row[2]) || 0;
+            const freeExtra = parseInt(row[3]) || 0;
+            const bookingId = String(row[5] || '').trim();
+            const checkInStr = row[7];
+            const checkOutStr = row[8];
+            const guestName = String(row[9] || '').trim();
+
+            const building = parseBuilding(currentCategory);
+            const totalPlaces = occupiedPlaces + freeMain + freeExtra;
+
+            if (!buildings[building]) buildings[building] = {};
+            if (!buildings[building][currentCategory]) buildings[building][currentCategory] = {};
+            if (!buildings[building][currentCategory][roomNumber]) {
+                buildings[building][currentCategory][roomNumber] = {
+                    totalMain: freeMain + (occupiedPlaces > 0 ? occupiedPlaces : 0),
+                    totalExtra: freeExtra,
+                    bookings: []
+                };
+                roomNumbersList.add(roomNumber);
+            }
+
+            // Booking data
+            if (bookingId && bookingId !== '-' && (bookingId.startsWith('MOB') || bookingId.startsWith('OTL') || bookingId.startsWith('IMP'))) {
+                const checkIn = parseDate(checkInStr);
+                const checkOut = parseDate(checkOutStr);
+
+                if (checkIn && checkOut) {
+                    const roomData = buildings[building][currentCategory][roomNumber];
+                    const exists = roomData.bookings.some(b => b.bookingId === bookingId);
+                    if (!exists) {
+                        roomData.bookings.push({
+                            bookingId: bookingId,
+                            checkIn: checkIn,
+                            checkOut: checkOut,
+                            guestName: guestName === 'Не указано' ? '' : guestName,
+                            occupiedPlaces: occupiedPlaces
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    return {
+        buildings,
+        allDates,
+        dailyCategoryStats,
+        totalRooms: roomNumbersList.size,
+        dateRange: `${formatDateLong(allDates[0])} — ${formatDateLong(allDates[allDates.length - 1])}`
+    };
+}
+
+// ====== HELPERS ======
+
+function dateInRange(date, checkIn, checkOut) {
+    const dk = date.toISOString().split('T')[0];
+    const start = checkIn.toISOString().split('T')[0];
+    const end = checkOut.toISOString().split('T')[0];
+    return dk >= start && dk < end;
+}
+
+function findBookingForDate(bookings, date) {
+    for (const b of bookings) {
+        if (dateInRange(date, b.checkIn, b.checkOut)) return b;
+    }
+    return null;
+}
+
+function countOccupiedRooms(categoryRooms, date) {
+    let count = 0;
+    for (const roomNum of Object.keys(categoryRooms)) {
+        if (findBookingForDate(categoryRooms[roomNum].bookings, date)) count++;
+    }
+    return count;
+}
+
+// ====== RENDERING ======
+
+function renderChessboard(parsed) {
+    const { buildings, allDates, dailyCategoryStats, totalRooms, dateRange } = parsed;
+
+    document.getElementById('report-badge').textContent = dateRange;
+
+    // Calculate average occupancy % across all dates
+    let totalPctSum = 0;
+    let totalBookingsCount = 0;
+    for (const date of allDates) {
+        // Count how many rooms are occupied on this date
+        let occupiedRooms = 0;
+        for (const buildingName of Object.keys(buildings)) {
+            for (const catName of Object.keys(buildings[buildingName])) {
+                const rooms = buildings[buildingName][catName];
+                for (const rn of Object.keys(rooms)) {
+                    if (findBookingForDate(rooms[rn].bookings, date)) occupiedRooms++;
+                }
+            }
+        }
+        if (totalRooms > 0) {
+            totalPctSum += (occupiedRooms / totalRooms) * 100;
+        }
+        totalBookingsCount += occupiedRooms;
+    }
+    const avgOccupancyPct = allDates.length > 0 ? Math.round(totalPctSum / allDates.length) : 0;
+    const avgBookingsPerDay = allDates.length > 0 ? Math.round(totalBookingsCount / allDates.length) : 0;
+
+    // Stats bar
+    document.getElementById('stats-bar').innerHTML = `
+        <div class="stat-card">
+            <div class="label">Номеров</div>
+            <div class="value accent">${totalRooms}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Дней</div>
+            <div class="value">${allDates.length}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Ср. загрузка номеров</div>
+            <div class="value warning">${avgOccupancyPct}%</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Ср. занято номеров/день</div>
+            <div class="value success">${avgBookingsPerDay}</div>
+        </div>
+    `;
+
+    // Nav tabs
+    const buildingNames = Object.keys(buildings).sort();
+    document.getElementById('nav-tabs').innerHTML = buildingNames.map((name, i) =>
+        `<a href="#building-${encodeURIComponent(name)}" class="nav-tab${i === 0 ? ' active' : ''}">${name}</a>`
+    ).join('');
+
+    // Highlight active nav on scroll
+    highlightNavOnScroll();
+
+    // Container
+    const container = document.getElementById('chess-container');
+    container.innerHTML = '';
+
+    for (const buildingName of buildingNames) {
+        const categories = buildings[buildingName];
+        const section = document.createElement('div');
+        section.className = 'building-section';
+        section.id = `building-${buildingName}`;
+
+        // Count rooms in building
+        let buildingRoomCount = 0;
+        for (const cat of Object.keys(categories)) buildingRoomCount += Object.keys(categories[cat]).length;
+
+        section.innerHTML = `
+            <div class="building-header">
+                <h2>${buildingName}</h2>
+                <div class="count">${buildingRoomCount} номеров</div>
+            </div>
+        `;
+
+        for (const categoryName of Object.keys(categories)) {
+            const rooms = categories[categoryName];
+            const roomNumbers = Object.keys(rooms).sort((a, b) => {
+                return a.localeCompare(b, 'ru', { numeric: true });
+            });
+
+            // Calculate category summary
+            let totalCatRooms = roomNumbers.length;
+            let totalCatBookings = 0;
+
+            for (const rn of roomNumbers) {
+                totalCatBookings += rooms[rn].bookings.length;
+            }
+
+            // Average occupancy % across all dates
+            let occPctSum = 0;
+            let occDatesCount = 0;
+            for (const date of allDates) {
+                const occ = countOccupiedRooms(rooms, date);
+                if (totalCatRooms > 0) {
+                    occPctSum += (occ / totalCatRooms) * 100;
+                    occDatesCount++;
+                }
+            }
+            const avgOccupancyPct = occDatesCount > 0 ? Math.round(occPctSum / occDatesCount) : 0;
+
+            const group = document.createElement('div');
+            group.className = 'category-group';
+
+            group.innerHTML = `
+                <div class="category-header">
+                    <h3>${categoryName}</h3>
+                    <div class="category-stats">
+                        <div class="category-stat occupied">Занято: <span>${avgOccupancyPct}%</span></div>
+                        <div class="category-stat">Номеров: <span>${totalCatRooms}</span></div>
+                        <div class="category-stat">Бронирований: <span>${totalCatBookings}</span></div>
+                    </div>
+                </div>
+                <div class="occupancy-bar"><div class="fill" style="width:${avgOccupancyPct}%"></div></div>
+                <div class="chess-wrapper"></div>
+                <div class="legend">
+                    <div class="legend-item"><div class="legend-dot booked"></div> Занято</div>
+                    <div class="legend-item"><div class="legend-dot free"></div> Свободно</div>
+                    <div class="legend-item" style="margin-left:auto;color:var(--weekend);">■ Выходные</div>
+                </div>
+            `;
+
+            // Build table
+            const wrapper = group.querySelector('.chess-wrapper');
+            const table = document.createElement('table');
+            table.className = 'chess';
+
+            // THEAD
+            let thead = '<thead>';
+
+            // Month labels row — count days per month first
+            thead += '<tr><th class="room-header" rowspan="3">Номер</th>';
+            const monthSpans = [];
+            let curMonth = -1, curSpan = 0;
+            for (const date of allDates) {
+                if (date.getMonth() !== curMonth) {
+                    if (curMonth !== -1) monthSpans.push({ month: curMonth, span: curSpan });
+                    curMonth = date.getMonth();
+                    curSpan = 1;
+                } else {
+                    curSpan++;
+                }
+            }
+            monthSpans.push({ month: curMonth, span: curSpan });
+
+            for (const ms of monthSpans) {
+                const d = allDates.find(dd => dd.getMonth() === ms.month);
+                thead += `<th class="month-label" colspan="${ms.span}">${monthNameShort(d)} ${d.getFullYear()}</th>`;
+            }
+            thead += '<th class="summary-header">Чел.</th>';
+            thead += '<th class="summary-header">Суток</th>';
+            thead += '</tr>';
+
+            // Day of week row
+            thead += '<tr>';
+            for (const date of allDates) {
+                const we = isWeekend(date) ? ' weekend' : '';
+                thead += `<th class="day-of-week${we}">${dayOfWeek(date)}</th>`;
+            }
+            thead += '<th class="summary-header"></th>';
+            thead += '<th class="summary-header"></th>';
+            thead += '</tr>';
+
+            // Date numbers row
+            thead += '<tr>';
+            for (const date of allDates) {
+                const we = isWeekend(date) ? ' weekend' : '';
+                thead += `<th class="date-header${we}">${formatDateShort(date)}</th>`;
+            }
+            thead += '<th class="summary-header"></th>';
+            thead += '<th class="summary-header"></th>';
+            thead += '</tr>';
+            thead += '</thead>';
+
+            // TBODY
+            let tbody = '<tbody>';
+            for (const roomNumber of roomNumbers) {
+                const roomData = rooms[roomNumber];
+                const bookings = roomData.bookings;
+
+                // Calculate person-nights for this room
+                let personNights = 0;
+                for (const b of bookings) {
+                    const nights = Math.ceil((b.checkOut - b.checkIn) / (1000 * 60 * 60 * 24));
+                    personNights += (b.occupiedPlaces || 0) * nights;
+                }
+
+                tbody += '<tr>';
+                tbody += `<td class="room-cell">${roomNumber}</td>`;
+
+                let i = 0;
+                while (i < allDates.length) {
+                    const date = allDates[i];
+                    const booking = findBookingForDate(bookings, date);
+
+                    if (booking) {
+                        // Find span
+                        let span = 1;
+                        while (i + span < allDates.length) {
+                            const nextDate = allDates[i + span];
+                            if (dateInRange(nextDate, booking.checkIn, booking.checkOut)) {
+                                span++;
+                            } else break;
+                        }
+
+                        const mergedClass = span > 1 ? ' booked booked-merged' : ' booked';
+                        const guestName = booking.guestName || 'Гость не указан';
+                        const displayGuest = guestName.length > 25 ? guestName.substring(0, 25) + '…' : guestName;
+
+                        tbody += `<td class="guest-cell${mergedClass}" colspan="${span}" data-booking="${booking.bookingId}" style="cursor:pointer;" title="Нажмите, чтобы скопировать номер бронирования">
+                            <div class="guest-name-text" title="${guestName}">${displayGuest}</div>
+                            <div class="guest-meta">
+                                <span class="guest-booking-id">${booking.bookingId}</span>
+                                <span class="guest-guests-count">👤 ${booking.occupiedPlaces || '—'}</span>
+                            </div>
+                        </td>`;
+
+                        // Hide spanned cells
+                        for (let j = 1; j < span; j++) {
+                            tbody += `<td style="display:none"></td>`;
+                        }
+                        i += span;
+                    } else {
+                        tbody += `<td class="free"></td>`;
+                        i++;
+                    }
+                }
+                // Summary columns
+                let totalGuests = 0, totalNights = 0;
+                for (const b of bookings) {
+                    const nights = Math.ceil((b.checkOut - b.checkIn) / (1000 * 60 * 60 * 24));
+                    totalGuests += b.occupiedPlaces || 0;
+                    totalNights += nights;
+                }
+                tbody += `<td class="summary-cell">${totalGuests}</td>`;
+                tbody += `<td class="summary-cell">${totalNights}</td>`;
+                tbody += '</tr>';
+            }
+            tbody += '</tbody>';
+
+            table.innerHTML = thead + tbody;
+            wrapper.appendChild(table);
+
+            section.appendChild(group);
+        }
+
+        container.appendChild(section);
+    }
+}
+
+function highlightNavOnScroll() {
+    const tabs = document.querySelectorAll('.nav-tab');
+    const sections = document.querySelectorAll('.building-section');
+
+    window.addEventListener('scroll', () => {
+        let current = '';
+        sections.forEach(section => {
+            const rect = section.getBoundingClientRect();
+            if (rect.top <= 150) current = section.id;
+        });
+
+        tabs.forEach(tab => {
+            tab.classList.remove('active');
+            if (tab.getAttribute('href') === '#' + current) {
+                tab.classList.add('active');
+            }
+        });
+    });
+}
+
+// ====== TOAST & COPY ======
+
+let toastTimeout = null;
+function showToast(message) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.classList.add('show');
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => toast.classList.remove('show'), 2000);
+}
+
+function copyBookingId(bookingId) {
+    navigator.clipboard.writeText(bookingId).then(() => {
+        showToast(`✓ Скопировано: ${bookingId}`);
+    }).catch(() => {
+        // Fallback для старых браузеров
+        const ta = document.createElement('textarea');
+        ta.value = bookingId;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast(`✓ Скопировано: ${bookingId}`);
+    });
+}
+
+// Event delegation for booking clicks
+document.addEventListener('click', (e) => {
+    const cell = e.target.closest('td.booked[data-booking]');
+    if (cell) {
+        copyBookingId(cell.getAttribute('data-booking'));
+    }
+});
+
+// ====== UI HANDLERS ======
+
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+});
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+function handleFile(file) {
+    document.getElementById('upload-screen').style.display = 'none';
+    document.getElementById('loading').classList.add('active');
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const parsed = parseExcel(e.target.result);
+            renderChessboard(parsed);
+            document.getElementById('loading').classList.remove('active');
+            document.getElementById('result-screen').style.display = 'block';
+        } catch (err) {
+            alert('Ошибка при обработке файла: ' + err.message);
+            console.error(err);
+            goBack();
+        }
+    };
+    reader.onerror = () => {
+        alert('Ошибка чтения файла');
+        goBack();
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function goBack() {
+    document.getElementById('result-screen').style.display = 'none';
+    document.getElementById('loading').classList.remove('active');
+    document.getElementById('upload-screen').style.display = 'flex';
+    fileInput.value = '';
+}
+</script>
+
+</body>
+</html>
